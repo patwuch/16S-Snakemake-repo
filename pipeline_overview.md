@@ -164,23 +164,21 @@ Results are saved to `{db}_permanova_permdisp.tsv`.
 ### LEfSe (Linear Discriminant Analysis Effect Size)
 The only currently active differential abundance method. Uses the exported `.biom` feature table and taxonomy TSV as input. For V3V4 NGS data the genus-collapsed table is used; for full-length TGS data the ASV-level table is used.
 
-LEfSe is run with **three implementations**, each independently switchable via config (`RUN_LEFSE_HUTTENHOWER`, `RUN_LEFSE_MICROBIOMEMARKER`, `RUN_LEFSE_WALDRON`) and each producing its own set of outputs (every plot as both `.svg` and `.png`) when enabled:
+LEfSe is run with **two implementations**, each independently switchable via config (`RUN_LEFSE_HUTTENHOWER`, `RUN_LEFSE_MICROBIOMEMARKER`) and each producing its own set of outputs (every plot as both `.svg` and `.png`) when enabled.
 
-**1. `lefse_Huttenhower` — vanilla Python-style Huttenhower LEfSe** (`run_lefse_Huttenhower.py`, toggled by `RUN_LEFSE_HUTTENHOWER`, default `true`) — the original LEfSe implementation. For each grouping axis it outputs:
+Both methods are split into a `_run` rule and a `_plot` rule. The `_run` rule executes that method's own statistics in that method's own environment and writes a LEfSe **`.res` file**; the `_plot` rule renders it. The `.res` file is the only thing that crosses between them, so re-plotting never re-runs the statistics.
+
+A `.res` file is a prefix-closed table over the taxonomy tree, one TAB-separated row per node: dot-separated lineage, `log10` of the largest per-class mean abundance, and then the enrichment class, LDA score and p-value for nodes the method called significant. Because both methods emit this one shape, they are rendered by the **same two upstream LEfSe scripts** (`scripts/lefse/plugin_lefse_barplot.py` and `plugin_lefse_treeplot.py`) via the shared `scripts/lefse_render.py`, so the figures are directly comparable across methods rather than each library drawing in its own idiom. Group colors and legend order come from `GROUP_COLORS` and are pinned to the full configured group universe, so a group keeps its color even in comparisons it does not appear in.
+
+When a method finds nothing significant, the upstream behaviour is preserved: the LDA bar chart is written as an empty file and the cladogram renders the uncoloured background tree.
+
+**1. `lefse_Huttenhower` — vanilla Python-style Huttenhower LEfSe** (`run_lefse_Huttenhower.py`, toggled by `RUN_LEFSE_HUTTENHOWER`, default `true`) — the original LEfSe implementation, which tests every taxonomic rank. For each grouping axis it outputs:
 - **`lefse_Huttenhower_LDA_by_{group}`** — LDA bar chart of ranked differentially abundant taxa.
 - **`lefse_Huttenhower_Cladogram_by_{group}`** — cladogram of the enriched taxa.
 
 **2. `lefse_MicrobiomeMarker` — R reimplementation via the `microbiomeMarker` package** (toggled by `RUN_LEFSE_MICROBIOMEMARKER`, default `true`). For each grouping axis (FACTORS, and composite labels if defined):
-- **`run_lefse_MicrobiomeMarker.R`** — runs LEfSe to identify taxa that are significantly enriched in one or more groups, ranked by LDA score.
-- **`plot_lefse_MicrobiomeMarker.R`** — generates:
-    - **LDA bar chart** — ranked differentially abundant taxa with LDA scores.
-    - **`lefse_MicrobiomeMarker_Cladogram_by_{group}`** — attempts `plot_cladogram()` from `microbiomeMarker`; if that call fails (e.g. due to missing tree data), the script falls back silently and writes a duplicate of the LDA bar chart to this file instead. In practice this output is not currently a true cladogram.
-
-**3. `lefse_Waldron` — R reimplementation via the `lefser` (waldronlab) package** (toggled by `RUN_LEFSE_WALDRON`, default `true` if unset — set explicitly to `false` in this project's config). `lefser` is a binary-class method, so it runs once per pairwise comparison within each grouping axis with more than two levels (e.g. a 3-level axis runs all 3 pairs), rather than one multi-class analysis:
-- **`run_lefse_Waldron.R`** — runs `lefser::lefser()` for the pair, ranked by LDA score.
-- **`plot_lefse_Waldron.R`** — generates:
-    - **`lefse_Waldron_LDA_by_{group}_{pair_label}`** — LDA bar chart for the pair.
-    - **`lefse_Waldron_Cladogram_by_{group}_{pair_label}`** — cladogram via `lefser::lefserPlotClad()`, falling back to the LDA bar chart if clade-resolved results are unavailable.
+- **`run_lefse_MicrobiomeMarker.R`** — runs `run_lefse()` with `taxa_rank = "all"`, so internal ranks are tested rather than only the finest one, and the cladogram has clades to colour rather than only tips. Writes both a `.res` and an `.rds` (the latter carries `padj`, which the `.res` format has no column for).
+- **`lefse_MicrobiomeMarker_LDA_by_{group}`** and **`lefse_MicrobiomeMarker_Cladogram_by_{group}`** — rendered from the `.res`. These are now genuine cladograms, not a duplicated bar chart.
 
 ### ANCOMBC2 — under maintenance, currently unavailable
 Output targets are commented out in the Snakefile; it does not run.
@@ -229,7 +227,7 @@ After all plots are generated, the pipeline compiles every visualisation into a 
 | 2 — Denoising | `table-dada2.qza`, `rep-seqs-dada2.qza`, `dada2-stats.qzv`, `table-analysis.qza`, `rep-seqs-analysis.qza` |
 | 3 — Taxonomy | `{db}-taxonomy.qza`, `{db}-taxa-bar-plots.qzv`, `taxa_barplot_*_{samples,groups}.{svg,png}` |
 | 4 — Diversity | Alpha/beta plots (`.svg` + `.png`), `{db}_permanova_permdisp.tsv`; two rarefied tables: `table-analysis-rarefied.qza` (base) and `{db}-table-rarefied.qza` (per-DB) |
-| 5 — Diff. Abundance | LEfSe LDA + cladogram plots (`.svg` + `.png`) from the vanilla (`lefse_Huttenhower_*`), microbiomeMarker (`lefse_MicrobiomeMarker_*`), and lefser (`lefse_Waldron_*`, pairwise) implementations; ANCOMBC2 and ALDEx2 unavailable (under maintenance) |
+| 5 — Diff. Abundance | LEfSe LDA + cladogram plots (`.svg` + `.png`) from the vanilla (`lefse_Huttenhower_*`) and microbiomeMarker (`lefse_MicrobiomeMarker_*`) implementations, both rendered through the shared LEfSe renderer; ANCOMBC2 and ALDEx2 unavailable (under maintenance) |
 | 6 — Function | PICRUSt2 KO/EC/pathway TSVs, `picrust2_KO`/`picrust2_EC`/`picrust2_MetaCyc` heatmaps (`.svg` + `.png`) |
 | 7 — Report | `visualisations_report.pdf` |
 

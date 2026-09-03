@@ -168,13 +168,11 @@ if ANALYSIS_MODE == "standard":
 # predate this option keep running every implementation unless they opt out.
 run_lefse_huttenhower      = config.get("RUN_LEFSE_HUTTENHOWER", True)
 run_lefse_microbiomemarker = config.get("RUN_LEFSE_MICROBIOMEMARKER", True)
-run_lefse_waldron          = config.get("RUN_LEFSE_WALDRON", True)
 run_picrust2                = config.get("RUN_PICRUST2", True)
 
 _enabled_lefse = [name for name, on in [
     ("lefse_Huttenhower", run_lefse_huttenhower),
     ("lefse_MicrobiomeMarker", run_lefse_microbiomemarker),
-    ("lefse_Waldron", run_lefse_waldron),
 ] if on]
 log(f"[MAIN] Differential abundance methods to be run: {', '.join(_enabled_lefse) if _enabled_lefse else 'none'}")
 log(f"[MAIN] PICRUSt2: {'enabled' if run_picrust2 else 'disabled'}")
@@ -386,32 +384,6 @@ for _axis in GROUPING_AXES:
 log(f"[MAIN] GROUP_ORDERS = {GROUP_ORDERS}")
 log(f"[MAIN] GROUP_COLORS = {GROUP_COLORS}")
 
-# ------------------------------
-# lefse_Waldron (waldronlab/lefser) is a binary-class method, so any grouping axis
-# with more than two levels is run as all pairwise comparisons instead of a
-# single multi-class analysis. LEFSE_WALDRON_PAIR_LOOKUP maps (axis, pair_label) ->
-# (class_a, class_b) so rules can recover the raw level names from the
-# wildcard-safe label baked into output filenames.
-from itertools import combinations
-
-def _sanitize_level(x):
-    return re.sub(r"[^0-9A-Za-z]+", "_", str(x)).strip("_")
-
-LEFSE_WALDRON_PAIRS = {}         # axis -> [pair_label, ...]
-LEFSE_WALDRON_PAIR_LOOKUP = {}   # (axis, pair_label) -> (class_a, class_b)
-for _axis in GROUPING_AXES:
-    _levels = GROUP_ORDERS[_axis]
-    _pairs = list(combinations(_levels, 2))
-    _labels = []
-    for _a, _b in _pairs:
-        _label = f"{_sanitize_level(_a)}_vs_{_sanitize_level(_b)}"
-        _labels.append(_label)
-        LEFSE_WALDRON_PAIR_LOOKUP[(_axis, _label)] = (_a, _b)
-    LEFSE_WALDRON_PAIRS[_axis] = _labels
-    if len(_levels) > 2:
-        log(f"[MAIN] lefse_Waldron: axis '{_axis}' has {len(_levels)} levels — running {len(_pairs)} pairwise comparisons: {_labels}")
-
-log(f"[MAIN] LEFSE_WALDRON_PAIRS = {LEFSE_WALDRON_PAIRS}")
 
 
 # Define second level of directories
@@ -517,12 +489,6 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_LDA_by_{group}.svg"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
-                if run_lefse_waldron:
-                    for pair_label in LEFSE_WALDRON_PAIRS.get(group, []):
-                        differential_abundance_outputs.extend([
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_LDA_by_{group}_{pair_label}.svg"),
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_Cladogram_by_{group}_{pair_label}.svg"),
-                        ])
 
         # elif method == "ANCOMBC2":
         #     grouping_axes = DESIGN_INFO.get("factors", [])
@@ -567,14 +533,6 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.png"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
-                if run_lefse_waldron:
-                    for pair_label in LEFSE_WALDRON_PAIRS.get(group, []):
-                        differential_abundance_png_outputs.extend([
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_LDA_by_{group}_{pair_label}.png"),
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_LDA_by_{group}_{pair_label}.svg"),
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_Cladogram_by_{group}_{pair_label}.png"),
-                            str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Waldron_Cladogram_by_{group}_{pair_label}.svg"),
-                        ])
 
 picrust2_outputs = [
     str(STUDY_DIR / "picrust2_described" / "KO_metagenome_unstrat_described.tsv.gz"),

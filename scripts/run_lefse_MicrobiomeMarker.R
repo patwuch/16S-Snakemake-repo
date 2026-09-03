@@ -108,6 +108,7 @@ biom_path       <- snakemake@input[["feature_table"]]
 metadata_path   <- snakemake@input[["metadata"]]
 taxonomy_path   <- snakemake@input[["taxonomy"]]
 out_rds         <- snakemake@output[["lefse_MicrobiomeMarker_rds"]]
+out_res         <- snakemake@output[["lefse_MicrobiomeMarker_res"]]
 group_col       <- snakemake@params[["group_col"]]     %||% stop("group_col param not set")
 lda_cutoff      <- snakemake@params[["lda_cutoff"]]    %||% 2.0
 kw_cutoff       <- snakemake@params[["kw_cutoff"]]     %||% 0.05
@@ -116,6 +117,8 @@ norm            <- snakemake@params[["norm"]]          %||% "CPM"
 random_seed     <- snakemake@params[["random_seed"]]   %||% 42
 
 dir.create(dirname(out_rds), recursive = TRUE, showWarnings = FALSE)
+
+snakemake@source("write_lefse_res.R")
 
 # ---------- Load data ----------
 message("[lefse_MicrobiomeMarker] Reading BIOM table: ", biom_path)
@@ -153,19 +156,11 @@ otu <- otu[rowSums(otu, na.rm = TRUE) > 0, , drop = FALSE]
 if (nrow(otu) == 0) stop("No non-zero taxa remain after filtering.")
 
 # ---------- Build phyloseq ----------
-# ---------- Determine finest available taxonomic rank ----------
-STANDARD_RANKS <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
-
 tax_mat <- build_tax_matrix(tax_df, rownames(otu))
 
 message("[lefse_MicrobiomeMarker] tax_mat columns: ", paste(colnames(tax_mat), collapse = ", "))
 message("[lefse_MicrobiomeMarker] tax_mat first 3 rownames: ", paste(head(rownames(tax_mat), 3), collapse = " | "))
 message("[lefse_MicrobiomeMarker] tax_df first 3 rownames: ", paste(head(rownames(tax_df), 3), collapse = " | "))
-
-available_ranks <- intersect(STANDARD_RANKS, colnames(tax_mat))
-finest_rank <- if (length(available_ranks) > 0) tail(available_ranks, 1) else "all"
-
-message("[lefse_MicrobiomeMarker] Finest available taxonomic rank: ", finest_rank)
 
 ps <- phyloseq::phyloseq(
   phyloseq::otu_table(otu, taxa_are_rows = TRUE),
@@ -173,8 +168,17 @@ ps <- phyloseq::phyloseq(
   phyloseq::tax_table(tax_mat)
 )
 
+# The .res file is a table over the WHOLE taxonomy tree, so its background rows
+# come from every feature's full lineage, not from the marker list. Building it
+# here means the tree is available even when run_lefse() gives us no markers.
+lineage_map <- lapply(seq_len(nrow(tax_mat)),
+                      function(i) canonical_lineage(paste(tax_mat[i, ], collapse = "|")))
 
-message("[lefse_MicrobiomeMarker] Running LEfSe (group = '", group_col, "', taxa_rank = '", finest_rank, "')")
+write_res <- function(markers) {
+  write_lefse_res(otu, meta[[group_col]], lineage_map, markers, out_res)
+}
+
+message("[lefse_MicrobiomeMarker] Running LEfSe (group = '", group_col, "', taxa_rank = 'all')")
 set.seed(random_seed)
 mm <- tryCatch(
   microbiomeMarker::run_lefse(
@@ -184,13 +188,16 @@ mm <- tryCatch(
     lda_cutoff      = lda_cutoff,
     kw_cutoff       = kw_cutoff,
     wilcoxon_cutoff = wilcoxon_cutoff,
-    taxa_rank       = finest_rank,   # "Genus" when Species absent, "Species" when present
+    # Every rank, not just the finest, so internal tree nodes are tested too and
+    # the cladogram has clades to color rather than only tips.
+    taxa_rank       = "all",
     multigrp_strat  = TRUE
   ),
   error = function(e) {
     message("[lefse_MicrobiomeMarker] run_lefse failed: ", conditionMessage(e))
-    message("[lefse_MicrobiomeMarker] Writing NULL RDS, plotter will produce empty output.")
+    message("[lefse_MicrobiomeMarker] Writing NULL RDS and a marker-free .res.")
     saveRDS(NULL, file = out_rds)
+    write_res(NULL)
     quit(save = "no", status = 0)
   }
 )
@@ -198,5 +205,29 @@ mm <- tryCatch(
 n_markers <- nrow(microbiomeMarker::marker_table(mm)) %||% 0L
 message("[lefse_MicrobiomeMarker] Found ", n_markers, " significant marker(s).")
 
+# The .rds is kept alongside the .res because it carries `padj`, which the .res
+# format has no column for.
 saveRDS(mm, file = out_rds)
 message("[lefse_MicrobiomeMarker] Results saved: ", out_rds)
+
+markers <- NULL
+if (n_markers > 0) {
+  mt        <- as.data.frame(microbiomeMarker::marker_table(mm))
+  feat_col  <- intersect(c("feature", "Feature"), colnames(mt))[1]
+  grp_col   <- intersect(c("enrich_group", "enriched_group"), colnames(mt))[1]
+  score_col <- intersect(c("ef_lda", "ef_lda_score", "lda_score", "score"), colnames(mt))[1]
+  p_col     <- intersect(c("pvalue", "p_value", "padj"), colnames(mt))[1]
+  if (any(is.na(c(feat_col, grp_col, score_col))))
+    stop("Unrecognized marker_table columns: ", paste(colnames(mt), collapse = ", "))
+
+  feats <- as.character(mt[[feat_col]])
+  delim <- if (any(grepl("|", feats, fixed = TRUE))) "|" else ";"
+  markers <- data.frame(
+    lineage = vapply(feats, canonical_key, character(1), delim = delim, USE.NAMES = FALSE),
+    class   = as.character(mt[[grp_col]]),
+    lda     = as.numeric(mt[[score_col]]),
+    pvalue  = if (is.na(p_col)) NA_real_ else as.numeric(mt[[p_col]]),
+    stringsAsFactors = FALSE
+  )
+}
+write_res(markers)
