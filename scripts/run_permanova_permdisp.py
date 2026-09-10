@@ -9,6 +9,14 @@ from functools import partial
 import sys
 
 
+# skbio.permdisp derives each sample's distance to its group centroid and runs
+# an ANOVA on those distances. A group of <= 2 samples has a constant distance
+# vector (both points are equidistant from their midpoint), so the F statistic
+# is undefined and scipy emits ConstantInputWarning; PERMANOVA power for such a
+# group is also negligible. Groups smaller than this are dropped before testing.
+MIN_GROUP_SIZE = 3
+
+
 # ------------------------------
 # Worker: one (distance_name, col) pair
 # ------------------------------
@@ -22,11 +30,22 @@ def process_column(args):
         return results
 
     meta_sub = meta_sub.loc[common]
-    dm_sub = dm.filter(common)
+
+    counts = meta_sub[col].value_counts()
+    small = counts.index[counts < MIN_GROUP_SIZE].tolist()
+    if small:
+        print(
+            f"[PERMANOVA] {name} / {col}: dropping group(s) with "
+            f"< {MIN_GROUP_SIZE} samples: {small}",
+            file=sys.stderr,
+        )
+        meta_sub = meta_sub[~meta_sub[col].isin(small)]
 
     n_groups = meta_sub[col].nunique()
     if n_groups < 2 or n_groups >= len(meta_sub):
         return results
+
+    dm_sub = dm.filter(meta_sub.index)
 
     # Omnibus PERMANOVA + betadisper
     perm = permanova(dm_sub, meta_sub[col], permutations=9999)
@@ -49,7 +68,7 @@ def process_column(args):
         meta_pair = meta_sub[meta_sub[col].isin([g1, g2])]
         dm_pair = dm_sub.filter(meta_pair.index)
 
-        if (meta_pair[col].value_counts() < 2).any():
+        if (meta_pair[col].value_counts() < MIN_GROUP_SIZE).any():
             continue
 
         pair_label = f"{g1} vs {g2}"
