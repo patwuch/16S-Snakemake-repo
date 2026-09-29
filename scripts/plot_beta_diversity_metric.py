@@ -1,6 +1,7 @@
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Ellipse
@@ -78,36 +79,43 @@ def main():
         hue_order=categories,
         data=df,
         palette=category_colors,
-        s=100,
-        alpha=0.8,
+        s=95,
+        alpha=0.9,
+        edgecolor="black",
+        linewidth=0.6,
+        zorder=3,
         ax=ax,
     )
 
+    # ±1 SD ellipse along each group's own covariance axes. Visual grouping
+    # only, not a confidence region.
     for cat in categories:
         cat_df = df[df[factor] == cat]
-        if len(cat_df) < 2:
-            continue
-        if cat_df["PC1"].std() == 0 or cat_df["PC2"].std() == 0:
+        if len(cat_df) < 3:
             continue
 
-        cx, cy = cat_df["PC1"].mean(), cat_df["PC2"].mean()
-        w, h   = cat_df["PC1"].std() * 2, cat_df["PC2"].std() * 2
+        vals, vecs = np.linalg.eigh(np.cov(cat_df["PC1"], cat_df["PC2"]))
+        theta = np.degrees(np.arctan2(vecs[1, -1], vecs[0, -1]))
+        w, h  = 2 * np.sqrt(np.maximum(vals[::-1], 0))
 
         ellipse = Ellipse(
-            (cx, cy),
+            (cat_df["PC1"].mean(), cat_df["PC2"].mean()),
             width=w,
             height=h,
+            angle=theta,
             edgecolor=category_colors[cat],
             facecolor=category_colors[cat],
-            alpha=0.15,
-            lw=2,
+            alpha=0.10,
+            linestyle="--",
+            lw=1.0,
+            zorder=1,
         )
         ax.add_patch(ellipse)
-        ax.scatter(cx, cy, marker="D", s=150, color=category_colors[cat])
 
     ax.set_title(metric_label)
-    ax.set_xlabel("PC1")
-    ax.set_ylabel("PC2")
+    ve = pcoa_res.proportion_explained.iloc[:2] * 100
+    ax.set_xlabel(f"PC1 ({ve.iloc[0]:.1f}%)")
+    ax.set_ylabel(f"PC2 ({ve.iloc[1]:.1f}%)")
 
     fig.suptitle(f"PCoA on Samples by Factor: {factor}", fontsize=14, y=0.98)
     # Small kicker line above the title, separable by cropping, so the reference

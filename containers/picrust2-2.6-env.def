@@ -1,0 +1,18 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%files
+    envs/picrust2-2.6-env.yaml /opt/envs/picrust2-2.6-env.yaml
+
+%post
+    conda env create -f /opt/envs/picrust2-2.6-env.yaml -p /opt/conda-env
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda-env/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Source envs/picrust2-2.6-env.yaml

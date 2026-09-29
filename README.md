@@ -1,11 +1,11 @@
 # Core Laboratory of Human Microbiome @ Taipei Medical University
 
 Our lab provides end-to-end services from storing biological samples to publication-ready reports. This includes step like DNA extraction, artefact creation, taxa classification, diversity + phylogenetic analysis, and functional metabolomics prediction. Currently we handle:
+
 * Next Generation Sequencing (16S V3-V4 rRNA)
 * Third Generation Sequencing (16S Full Length)
 * Shotgun Metagenomics
 * Anaerobic Bacterium Cultivation
-
 
 For more details, please visit [our landing page](https://microbiome-in-tmu.mystrikingly.com).
 
@@ -17,39 +17,43 @@ For more details, please visit [our landing page](https://microbiome-in-tmu.myst
 
 See [`quickstart.md`](quickstart.md) for metadata.tsv column-naming rules and general Snakemake usage tips (dry runs, `--until`, `--touch`, etc), and [`pipeline_overview.md`](pipeline_overview.md) for a stage-by-stage walkthrough of what the Snakemake workflow actually does, from manifest building through the final PDF report.
 
+## Currently Supported Taxonomic/Phylogeny Databases
 
-## Currently Supported Taxonomic Database
 * Greengenes2
 * SILVA 138 (see [`pipeline_overview.md`](pipeline_overview.md) Stage 3c for its SEPP phylogeny caveats)
 
 ## Currently Supported Functional Prediction Database
+
 * PICRUST2
 
 ## Currently Supported Differential Analysis Methods
-* LEfSe (three switchable implementations — Huttenhower, microbiomeMarker, Waldron/lefser; see [`pipeline_overview.md`](pipeline_overview.md) Stage 5)
 
-## Features Under Maintenance
-* ALDEx2, ANCOMBC-2
+* LEfSe (the original Huttenhower implementation — see [`pipeline_overview.md`](pipeline_overview.md) Stage 5)
+* ANCOMBC2
 
 ## Naming Convention Guide
+
 It is suggested to keep your naming convention simple, i.e. use hyphens for QIIME2 artefacts(.qza, .qzv) and underscores for everything else (.tsv, .csv) so you know which files are meant to be only processed via QIIME2.
 
 ## Environment Guide
-This is the Linux repository. Per-rule software (QIIME2, PICRUSt2, LEfSe, ALDEx2, the report compiler) runs inside Apptainer containers rather than ad hoc conda environments, so a run is reproducible regardless of what happens to be installed on the host.
+
+This is the Linux repository. Per-rule software (QIIME2, PICRUSt2, LEfSe, ANCOMBC2, the report compiler) runs inside Apptainer containers rather than ad hoc conda environments, so a run is reproducible regardless of what happens to be installed on the host.
 
 **Running the pipeline**: activate an environment with Snakemake and Apptainer installed (`environment.yml` defines this — e.g. `conda env create -f environment.yml && conda activate smk9`), then invoke Snakemake with `--sdm apptainer`:
-```
+
+```Shell
 snakemake --sdm apptainer --configfile config/<your_config>.yaml <target>
 ```
+
 `--sdm` (`--software-deployment-method`) tells Snakemake to run each rule's `container:` directive through Apptainer instead of provisioning a conda env per rule.
 
-Prefer running through `scripts/run_snakemake.sh` instead of calling `snakemake` directly — it's a drop-in wrapper (same arguments) that runs the pipeline inside a transient systemd cgroup with swap disabled, so a rule that runs away on memory gets killed fast instead of thrashing the whole host into swap:
-```
+**Prefer running through `scripts/run_snakemake.sh` instead of calling `snakemake` directly** — it's a drop-in wrapper (same arguments) that runs the pipeline inside a transient systemd cgroup with swap disabled, so a rule that runs away on memory gets killed fast instead of thrashing the whole host into swap:
+
+```Shell
 scripts/run_snakemake.sh --sdm apptainer --configfile config/<your_config>.yaml <target>
 ```
-Override the memory ceiling with `SNAKEMAKE_MEM_MAX` (cgroup cap, default `26G`) and `SNAKEMAKE_MEM_BUDGET` (the `mem_mb` resource budget passed to Snakemake, default `24000`).
 
-**Monitoring a long-running Silva138 SEPP job**: `qiime fragment-insertion sepp` (used to build Silva138's per-study phylogenetic tree, see [`pipeline_overview.md`](pipeline_overview.md) Stage 3c) hides its own progress log. The rule streams a compact progress summary automatically, but if you want to attach to an already-running job from another terminal, use `scripts/watch_sepp.sh` (auto-attaches if exactly one SEPP job is running, or pass a PID if several are).
+Override the memory ceiling with `SNAKEMAKE_MEM_MAX` (cgroup cap, default `26G`) and `SNAKEMAKE_MEM_BUDGET` (the `mem_mb` resource budget passed to Snakemake, default `24000`).
 
 **Building/rebuilding containers**: each `containers/<name>.sif` is built from the matching `containers/<name>.def`, which in turn installs the matching `envs/<name>.yaml` conda spec. `envs/*.yaml` stays the source of truth for package lists — edit those, not a built `.sif` directly. Run `containers/build.sh` to build any `.def` missing a `.sif`, or `containers/build.sh --force <name>` to rebuild one after editing its `envs/*.yaml`. Snakemake does not rebuild containers on its own, and builds must run one at a time (`build.sh` already does this) — concurrent `apptainer build --fakeroot` runs corrupt each other via fakeroot namespace contention.
 

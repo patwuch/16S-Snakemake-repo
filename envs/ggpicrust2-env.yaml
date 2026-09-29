@@ -1,0 +1,26 @@
+# ggpicrust2 (CRAN only, installed in containers/ggpicrust2-env.def) with LinDA
+# (r-microbiomestat) for per-project PICRUSt2 pathway tests, e.g.
+# main/reza250909/additional_comparison_scripts/run_ggpicrust2_linda.R.
+name: ggpicrust2
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base=4.5
+  - r-microbiomestat=1.4
+  - r-aplot
+  - r-ggh4x
+  - r-ggprism
+  - r-ggplotify
+  - r-tidygraph
+  - r-ggraph
+  - r-patchwork
+  - r-progress
+  - r-readr
+  - r-tidyr
+  - r-dplyr
+  - r-ggplot2
+  - r-magrittr
+  - r-tibble
+  - r-xml2
+  - r-svglite

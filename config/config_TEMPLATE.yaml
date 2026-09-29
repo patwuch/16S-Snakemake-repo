@@ -1,0 +1,77 @@
+# This is the sample configuration file for the microbiome analysis workflow of Core Laboratory of Human Microbiome, TMU.
+# Please modify the parameters according to your experimental design and analysis needs.
+# Save the modified file as '{PROJECT_NAME}.yaml' in the same directory as the Snakefile.
+##############################################
+# Project Information
+##############################################
+
+# Use the same exact characters as the title of the yaml file.
+# If there are duplicate STUDY_NAME in the workflow directory, the pipeline might overwrite previous results.
+STUDY_NAME: 'TEMPLATE'
+
+##############################################
+# Environment & Sequencing Parameters
+##############################################
+
+ANALYSIS_MODE: 'standard'   
+
+# Standard protocol at the lab includes NGS of V3-V4 region of 16S rRNA gene and TGS of full-length 16S rRNA gene.
+SEQUENCE_TYPE: 'TGS'       # 'NGS' or 'TGS'
+REGION: 'full_length'      # 'region_V3V4' or 'full_length'
+
+N_THREADS: 14
+
+##############################################
+# Reference Database
+##############################################
+
+#C Currently supported databases: 'Greengenes2'
+REFERENCE_DB:
+  - 'Greengenes2'
+  - 'Silva138'
+#  - 'NCBI'
+
+# Phylogeny for Silva138 is memory-heavy and uses an older SEPP reference method (Silva128)
+# https://forum.qiime2.org/t/compatibility-of-sepp-silva128-with-taxonomy-classification-using-silva138/31172/3
+# If you want to skip phylogeny for Silva138, set the following parameter to true.
+SILVA138_SKIP_PHYLOGENY: false
+
+# LEfSe uses the original Huttenhower (2011) python implementation
+RUN_LEFSE_HUTTENHOWER: true
+
+RUN_ANCOMBC2: TRUE
+# For functional prediction, the pipeline uses PiCRUST2 (Douglas et al. 2020)
+RUN_PICRUST2: false
+
+##############################################
+# Experimental Design Declaration
+##############################################
+
+DESIGN:
+  # ------------------------------------------
+  # Primary Experimental Factors
+  # ------------------------------------------
+  # Variables the experiment is designed to test.
+  # Typical experiments take 'Group' as your grouping column, but more than one factor can be used.
+  # Add a 'PrimaryOrder' column if you want to specify the order in which 'Group' appears. 
+  # The 'Order' column can only contain integers (1,2,3...) and MUST match the 'Group' it is assigned to consistently.
+
+  FACTORS:
+    - column: "Group"
+      type: "categorical"
+      description: ""
+
+  # ------------------------------------------
+  # Model shape (fixed, not configurable)
+  # ------------------------------------------
+  # Every ANCOM-BC2 run this pipeline launches is a FLAT fit: one FACTORS column,
+  # flat categorical levels, one run per column. There is no key here for
+  # interactions, covariate adjustment or random effects, and declaring the old
+  # DESIGN.INTERACTIONS / DESIGN.COVARIATES keys is now a hard config error.
+  #
+  # That is deliberate. Whether a column is a coefficient or a nuisance confounder
+  # is a property of the study, and it shifts faster than a shared schema can
+  # track. A study that needs a modelled formula writes its own script under
+  # main/<study>/additional_comparison_scripts/, where the modelling choice sits
+  # next to the reasoning for it.
+

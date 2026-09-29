@@ -10,6 +10,34 @@ from snakemake.io import directory
 def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
+def reject_whitespace(value, what):
+    """Reject whitespace in a value that becomes a shell-visible path segment.
+
+    This applies to STUDY_NAME and nothing else. STUDY_DIR sits under it, and
+    several rules interpolate STUDY_DIR-relative paths into unquoted shell --
+    `mkdir -p {params.outdir}` in rules/NGS.smk and rules/TGS.smk, among others
+    -- where a space silently splits one path into two arguments.
+
+    Grouping COLUMN names are deliberately not restricted, even
+    though ANCOMBC::ancombc2() cannot parse a spaced name out of its
+    `fix_formula` string. scripts/run_ancombc2.R gives the model a spaceless
+    alias column instead, and every other consumer takes such a name as-is:
+    snakemake round-trips it through wildcards, and no shell rule ever carries a
+    grouping column in its paths.
+
+    Group VALUES are not restricted either -- "Low tumor volume" survives end to
+    end by design.
+    """
+    if any(c.isspace() for c in str(value)):
+        raise ValueError(
+            f"{what} must not contain whitespace: {value!r}. It becomes a "
+            "directory and file-name segment that reaches unquoted shell "
+            "commands. Use underscores instead. Note this restricts the study "
+            "name only -- metadata column names and group values may contain "
+            "spaces."
+        )
+    return value
+
 # Suppress gRPC C-level verbosity (controls gRPC's own log system)
 os.environ["GRPC_VERBOSITY"] = "NONE"
 # Suppress abseil (absl) logs — this covers the E0000 instrument.cc duplicate-metric
@@ -35,7 +63,7 @@ region = config.get("REGION")
 if region not in ['region_V3V4', 'full_length']:
     raise ValueError(f"{region} not supported. Please choose a valid region.")
 
-study_name = config["STUDY_NAME"]
+study_name = reject_whitespace(config["STUDY_NAME"], "STUDY_NAME")
 
 # --- Analysis mode ---
 ANALYSIS_MODE = config.get("ANALYSIS_MODE", "standard")
@@ -54,14 +82,26 @@ def validate_standard_design(config):
     log("[VALIDATION] Checking experimental design (standard mode)...")
     design = config.get("DESIGN", {})
 
+    # This pipeline fits the flattest model there is: one factor column per run,
+    # as a flat categorical. Terms that adjust or condition that fit are rejected
+    # here rather than quietly dropped, because a key that silently does nothing
+    # is how DESIGN.INTERACTIONS sat broken and unnoticed for as long as it did.
+    # Whether a column is a coefficient or a nuisance confounder is a property of
+    # the study, and it changes faster than a shared schema can track.
+    unsupported = sorted(k for k in ("COVARIATES", "INTERACTIONS") if design.get(k))
+    if unsupported:
+        raise ValueError(
+            f"DESIGN.{', DESIGN.'.join(unsupported)} is set, and this pipeline does "
+            "not model it. Every run is a flat ANCOM-BC2 on a single DESIGN.FACTORS "
+            "column. Formula-based modelling (interactions, covariate adjustment, "
+            "random effects) belongs in a per-study script under "
+            "main/<study>/additional_comparison_scripts/, where the modelling "
+            "choice sits next to the reasoning for it."
+        )
+
     factors_raw = design.get("FACTORS") or []
     factors = [f["column"] for f in factors_raw]
-    
-    covariates_raw = design.get("COVARIATES") or []
-    covariates = [c["column"] for c in covariates_raw]
-    
-    interactions = design.get("INTERACTIONS") or []
-    
+
     composites_raw = design.get("COMPOSITE_LABELS") or []
     composites = [c["column"] for c in composites_raw]
 
@@ -70,36 +110,20 @@ def validate_standard_design(config):
         raise ValueError("Standard mode requires at least one DESIGN.FACTOR.")
 
     # Check uniqueness across all columns
-    all_columns = factors + covariates + composites
+    all_columns = factors + composites
     if len(all_columns) != len(set(all_columns)):
-        raise ValueError("Duplicate column names detected across FACTORS, COVARIATES, or COMPOSITE_LABELS.")
-
-    # Validate interactions
-    validated_interactions = []
-    for interaction in interactions:
-        if not isinstance(interaction, list) or len(interaction) < 2:
-            raise ValueError(f"Invalid interaction {interaction}. Must be a list of ≥2 FACTORS.")
-        for term in interaction:
-            if term not in factors:
-                raise ValueError(f"Interaction term '{term}' is not declared in DESIGN.FACTORS.")
-        validated_interactions.append(tuple(sorted(interaction)))
-
-    validated_interactions = sorted(set(validated_interactions))
+        raise ValueError("Duplicate column names detected across FACTORS or COMPOSITE_LABELS.")
 
     # Ensure composites are not used as model factors
     for comp in composites:
-        if comp in factors or comp in covariates:
-            raise ValueError(f"Composite label '{comp}' must not be used as a FACTOR or COVARIATE.")
+        if comp in factors:
+            raise ValueError(f"Composite label '{comp}' must not be used as a FACTOR.")
 
     log(f"✓ Factors: {factors}")
-    log(f"✓ Covariates: {covariates}")
-    log(f"✓ Interactions: {validated_interactions}")
     log(f"✓ Composite labels (visualization only): {composites}")
 
     return {
         "factors": factors,
-        "covariates": covariates,
-        "interactions": validated_interactions,
         "composite_labels": composites,
     }
 # --- Determine grouping axes based on analysis mode ---
@@ -157,24 +181,32 @@ if ANALYSIS_MODE == "standard":
     if DESIGN_INFO.get("factors"):
         # Automatically add LEfSe for each factor if desired
         DA_METHODS.append("LEfSe_per_factor")
+        # Actual gating on RUN_ANCOMBC2 happens per-output below, same pattern
+        # LEfSe uses for its two implementation toggles.
+        DA_METHODS.append("ANCOMBC2")
 
 
 # ==============================
 # Per-implementation toggles (LEfSe, PICRUSt2)
 # ==============================
-# Each LEfSe implementation is switched independently; see pipeline_overview.md
-# Stage 5 for what each one produces. All four default to True (every method
-# always ran unconditionally before these toggles existed) so configs that
-# predate this option keep running every implementation unless they opt out.
+# Each analysis is switched independently; see pipeline_overview.md Stage 5 for
+# what each one produces. All three default to True (every method always ran
+# unconditionally before these toggles existed) so configs that predate this
+# option keep running every method unless they opt out.
+#
+# RUN_LEFSE_MICROBIOMEMARKER is gone: the microbiomeMarker LEfSe reimplementation
+# was removed because, unlike ANCOM-BC2, it added little over the Huttenhower
+# original it reimplements. A leftover RUN_LEFSE_MICROBIOMEMARKER key in an old
+# config is simply ignored.
 run_lefse_huttenhower      = config.get("RUN_LEFSE_HUTTENHOWER", True)
-run_lefse_microbiomemarker = config.get("RUN_LEFSE_MICROBIOMEMARKER", True)
+run_ancombc2               = config.get("RUN_ANCOMBC2", True)
 run_picrust2                = config.get("RUN_PICRUST2", True)
 
-_enabled_lefse = [name for name, on in [
+_enabled_da_methods = [name for name, on in [
     ("lefse_Huttenhower", run_lefse_huttenhower),
-    ("lefse_MicrobiomeMarker", run_lefse_microbiomemarker),
+    ("ANCOMBC2", run_ancombc2),
 ] if on]
-log(f"[MAIN] Differential abundance methods to be run: {', '.join(_enabled_lefse) if _enabled_lefse else 'none'}")
+log(f"[MAIN] Differential abundance methods to be run: {', '.join(_enabled_da_methods) if _enabled_da_methods else 'none'}")
 log(f"[MAIN] PICRUSt2: {'enabled' if run_picrust2 else 'disabled'}")
 
 # ==============================
@@ -196,8 +228,6 @@ top_n_picrust                = config.get("TOP_N_PICRUST", 30)
 lefse_lda_cutoff             = config.get("LEFSE_LDA_CUTOFF", 3.0)
 lefse_kw_cutoff              = config.get("LEFSE_KW_CUTOFF", 0.05)
 lefse_wilcoxon_cutoff        = config.get("LEFSE_WILCOXON_CUTOFF", 0.05)
-lefse_norm                   = config.get("LEFSE_NORM", "CPM")
-lefse_random_seed            = config.get("LEFSE_RANDOM_SEED", 42)
 ancombc2_min_sample_presence = config.get("ANCOMBC2_MIN_SAMPLE_PRESENCE", 3)
 ancombc2_prv_cut             = config.get("ANCOMBC2_PRV_CUT", 0.28)
 ancombc2_lib_cut             = config.get("ANCOMBC2_LIB_CUT", 5000)
@@ -206,14 +236,6 @@ ancombc2_alpha               = config.get("ANCOMBC2_ALPHA", 0.05)
 ancombc2_pseudo_sens         = config.get("ANCOMBC2_PSEUDO_SENS", True)
 ancombc2_struc_zero          = config.get("ANCOMBC2_STRUC_ZERO", True)
 ancombc2_neg_lb              = config.get("ANCOMBC2_NEG_LB", True)
-ancombc2_volcano_sig_threshold = config.get("ANCOMBC2_VOLCANO_SIG_THRESHOLD", 0.05)
-ancombc2_heatmap_top_n       = config.get("ANCOMBC2_HEATMAP_TOP_N", 30)
-aldex2_p_adj_method          = config.get("ALDEX2_P_ADJ_METHOD", "BH")
-aldex2_pvalue_cutoff         = config.get("ALDEX2_PVALUE_CUTOFF", 0.05)
-aldex2_mc_samples            = config.get("ALDEX2_MC_SAMPLES", 128)
-aldex2_denom                 = config.get("ALDEX2_DENOM", "all")
-aldex2_paired_test           = config.get("ALDEX2_PAIRED_TEST", False)
-aldex2_heatmap_top_n         = config.get("ALDEX2_HEATMAP_TOP_N", 30)
 
 # ==============================
 # Summary
@@ -396,6 +418,14 @@ CORE_METRICS_DIR = QIIME_DIR / "core-metrics-results"
 
 # Define main qiime2 container
 QIIME_CONTAINER = str(WORKFLOW_DIR / "containers/qiime2-2025.10-amplicon-core.sif")
+# Named for the microbiomeMarker LEfSe that has since been removed; the image is
+# kept because lefse_Huttenhower_run and every .res plot rule still need it, and
+# renaming it would mean rebuilding the .sif for nothing. Its microbiomeMarker R
+# package is now simply unused.
+LEFSE_R_CONTAINER = str(WORKFLOW_DIR / "containers/lefse_MicrobiomeMarker-r-env.sif")
+# The effect-size/cladogram renderer is Python and matplotlib and needs no R. This is
+# simply the one image carrying the lefse package its two drawing scripts import.
+EFFECTSIZE_CLADOGRAM_CONTAINER = LEFSE_R_CONTAINER
 
 ##############################################
 # FINAL TARGETS
@@ -479,35 +509,18 @@ for db in reference_db:
                 axes = DESIGN_INFO.get("grouping_axes", [])
 
             for group in axes:
-                if run_lefse_microbiomemarker:
-                    differential_abundance_outputs.extend([
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_LDA_by_{group}.svg"),
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_Cladogram_by_{group}.svg"),
-                    ])
                 if run_lefse_huttenhower:
                     differential_abundance_outputs.extend([
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_LDA_by_{group}.svg"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
 
-        # elif method == "ANCOMBC2":
-        #     grouping_axes = DESIGN_INFO.get("factors", [])
-        #     for group in grouping_axes:
-        #         differential_abundance_outputs.append(str(TMP_DIR / f"{db}/ANCOMBC2_results_by_{group}.tsv"))
-        #         differential_abundance_outputs.extend([
-        #             str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_{group}_volcano.png"),
-        #             str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_{group}_heatmap.png"),
-        #             str(TMP_DIR / f"{db}/ANCOMBC2_{group}_heatmap_taxa_legend.tsv"),
-        #         ])
-
-        # elif method == "ALDEX2":
-        #     for group in DESIGN_INFO.get("factors", []):
-        #         differential_abundance_outputs.extend([
-        #             str(TMP_DIR / f"{db}/ALDEX2_results_by_{group}.rds"),
-        #             str(TMP_DIR / f"{db}/ALDEX2_results_by_{group}.tsv"),
-        #             str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ALDEX2_{group}_heatmap.png"),
-        #             str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ALDEX2_{group}_cladogram.svg"),
-        #         ])
+        elif method == "ANCOMBC2" and run_ancombc2:
+            for group in DESIGN_INFO.get("factors", []):
+                differential_abundance_outputs.extend([
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.svg"),
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.svg"),
+                ])
 
 
 differential_abundance_png_outputs = []
@@ -519,13 +532,6 @@ for db in reference_db:
             else:
                 axes = DESIGN_INFO.get("grouping_axes", [])
             for group in axes:
-                if run_lefse_microbiomemarker:
-                    differential_abundance_png_outputs.extend([
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_LDA_by_{group}.png"),
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_LDA_by_{group}.svg"),
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_Cladogram_by_{group}.png"),
-                        str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_MicrobiomeMarker_Cladogram_by_{group}.svg"),
-                    ])
                 if run_lefse_huttenhower:
                     differential_abundance_png_outputs.extend([
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_LDA_by_{group}.png"),
@@ -533,6 +539,14 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.png"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
+        elif method == "ANCOMBC2" and run_ancombc2:
+            for group in DESIGN_INFO.get("factors", []):
+                differential_abundance_png_outputs.extend([
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.png"),
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.svg"),
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.png"),
+                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.svg"),
+                ])
 
 picrust2_outputs = [
     str(STUDY_DIR / "picrust2_described" / "KO_metagenome_unstrat_described.tsv.gz"),
@@ -878,23 +892,24 @@ include: "rules/diversity.smk"
 # STEP 5 - Differential Abundance Analyses
 ##############################################
 
-# For V3V4 NGS, DA tools receive the genus-collapsed table so that analysis is
-# performed at genus level (the finest reliable taxonomic resolution for this region).
-# Diversity analyses and PICRUSt2 are unaffected — they continue to use ASV-level data.
-if region == "region_V3V4":
-    DA_FEATURE_TABLE = TABLES_DIR / "{db}-study-seqs-genus.biom"
-    DA_TAXONOMY_SUFFIX = "{db}_genus_taxonomy.tsv"
-    DA_QIIME_TABLE = QIIME_DIR / "table-analysis.qza"       # ASV table
-    DA_QIIME_TAXA  = QIIME_DIR / "{db}-taxonomy.qza"        # taxonomy (FeatureData[Taxonomy])
-else:
-    DA_FEATURE_TABLE = TABLES_DIR / "study-seqs.biom"
-    DA_TAXONOMY_SUFFIX = "{db}_taxonomy.tsv"
-    DA_QIIME_TABLE = QIIME_DIR / "table-analysis.qza"
-    DA_QIIME_TAXA  = QIIME_DIR / "{db}-taxonomy.qza"
+# For V3V4 NGS, ANCOM-BC2 uses Silva138's genus-collapsed table but retains the
+# Greengenes2 table for its species-level collapse. Diversity analyses and PICRUSt2
+# are unaffected — they continue to use ASV-level data.
+DA_FEATURE_TABLE = lambda wc: (
+    TABLES_DIR / f"{wc.db}-study-seqs-genus.biom"
+    if region == "region_V3V4" and wc.db == "Silva138"
+    else TABLES_DIR / "study-seqs.biom"
+)
+DA_TAXONOMY = lambda wc: (
+    TABLES_DIR / "exported-taxonomy" / f"{wc.db}_genus_taxonomy.tsv"
+    if region == "region_V3V4" and wc.db == "Silva138"
+    else TABLES_DIR / "exported-taxonomy" / f"{wc.db}_taxonomy.tsv"
+)
+DA_QIIME_TABLE = QIIME_DIR / "table-analysis.qza"
+DA_QIIME_TAXA  = QIIME_DIR / "{db}-taxonomy.qza"
 
 include: "rules/LEfSe.smk"
 include: "rules/ANCOMBC2.smk"
-include: "rules/ALDEX2.smk"
 
 # ##############################################
 # #STEP 6 - Functional Prediction with PICRUSt2

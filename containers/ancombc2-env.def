@@ -1,0 +1,18 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%files
+    envs/ancombc2-env.yaml /opt/envs/ancombc2-env.yaml
+
+%post
+    conda env create -f /opt/envs/ancombc2-env.yaml -p /opt/conda-env
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda-env/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Source envs/ancombc2-env.yaml

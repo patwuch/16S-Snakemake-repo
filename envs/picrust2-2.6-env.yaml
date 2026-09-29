@@ -1,0 +1,10 @@
+# PICRUSt2 2.6.3 (PICRUSt2-SC reference database, separate bacteria/archaea).
+# For per-project analyses (e.g. main/reza250909/additional_comparison_scripts/run_picrust2.sh);
+# the pipeline's rules/PICRUSt2.smk still uses envs/picrust2-env.yaml (2.5.2).
+name: picrust2-2.6
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - picrust2=2.6.3

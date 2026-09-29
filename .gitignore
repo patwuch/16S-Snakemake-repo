@@ -1,8 +1,14 @@
 /reference/
 .snakemake/
-/main
+# Study folders stay untracked (data, artefacts, comparison-* outputs), except
+# each study's additional_comparison_scripts/, which is code only.
+/main/*
+!/main/*/
+/main/*/*
+!/main/*/additional_comparison_scripts/
+/main/*/additional_comparison_scripts/Rplots.pdf
 /config/*
-!/config/config_template.yaml
+!/config/config_TEMPLATE.yaml
 
 .cache/
 .config/
@@ -10,7 +16,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .vscode/
-.claude/settings.local.json
+.claude/
 
 # R
 .Rhistory
@@ -43,3 +49,4 @@ __pycache__/
 *.rds
 *.out
 *.sif
+*.png

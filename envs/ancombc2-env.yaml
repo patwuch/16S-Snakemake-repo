@@ -1,0 +1,13 @@
+channels:
+  - conda-forge
+  - bioconda
+platforms:
+  - linux-64
+dependencies:
+  - bioconductor-ancombc=2.14.0
+  - r-base>=4.5,<4.6
+  - bioconductor-phyloseq
+  - bioconductor-biomformat
+  - bioconductor-rhdf5
+  - r-logistf=1.26.1
+  - r-vegan

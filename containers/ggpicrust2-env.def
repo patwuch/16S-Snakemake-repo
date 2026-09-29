@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%files
+    envs/ggpicrust2-env.yaml /opt/envs/ggpicrust2-env.yaml
+
+%post
+    conda env create -f /opt/envs/ggpicrust2-env.yaml -p /opt/conda-env
+    conda clean -afy
+    # ggpicrust2 is on CRAN only; pinned to 2.5.17, dependencies from the conda env.
+    # Current release first; the Archive path once a newer version supersedes it.
+    /opt/conda-env/bin/Rscript -e 'for (u in c("https://cran.r-project.org/src/contrib/ggpicrust2_2.5.17.tar.gz", "https://cran.r-project.org/src/contrib/Archive/ggpicrust2/ggpicrust2_2.5.17.tar.gz")) if (!requireNamespace("ggpicrust2", quietly = TRUE)) try(install.packages(u, repos = NULL, type = "source"))'
+    /opt/conda-env/bin/Rscript -e 'stopifnot(packageVersion("ggpicrust2") == "2.5.17"); library(MicrobiomeStat); library(xml2); library(svglite)'
+
+%environment
+    export PATH=/opt/conda-env/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Source envs/ggpicrust2-env.yaml

@@ -9,9 +9,41 @@
 SILVA138_LEGACY_CLASSIFY_CONTAINER = str(WORKFLOW_DIR / "containers/qiime2-2021.4-silva138-classify.sif")
 
 if region == "region_V3V4":
+    # rep-seqs-analysis.qza is written by filter_seqs_to_table in the modern
+    # QIIME_CONTAINER (2025.10). classify-sklearn in the pinned 2021.4 container
+    # rejects that archive outright ("... is not a QIIME 2 Artifact"), so re-wrap
+    # the sequences into a 2021.4-native artifact first. A FeatureData[Sequence]
+    # .qza is just a zip holding <uuid>/data/dna-sequences.fasta; pull that out
+    # with stdlib zipfile (writer-version agnostic) and re-import it under the
+    # legacy framework. Only the reads need this round trip -- the classifier was
+    # trained under 2021.4 and already loads natively.
+    rule Silva138_reimport_rep_seqs_legacy:
+        input:
+            rep_seqs = QIIME_DIR / "rep-seqs-analysis.qza"
+        output:
+            rep_seqs_legacy = QIIME_DIR / "rep-seqs-analysis-legacy.qza"
+        params:
+            fasta = str(QIIME_DIR / "rep-seqs-analysis-legacy.fasta")
+        container:
+            SILVA138_LEGACY_CLASSIFY_CONTAINER
+        resources:
+            mem_mb = 2000
+        message:
+            "[Silva138] Re-wrapping analysis rep-seqs into a QIIME 2 2021.4-native artifact for legacy classify-sklearn..."
+        shell:
+            """
+            set -euo pipefail
+            python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); name = next(n for n in z.namelist() if n.endswith('/data/dna-sequences.fasta')); open(sys.argv[2], 'wb').write(z.read(name))" {input.rep_seqs} {params.fasta}
+            qiime tools import \
+                --type 'FeatureData[Sequence]' \
+                --input-path {params.fasta} \
+                --output-path {output.rep_seqs_legacy}
+            rm -f {params.fasta}
+            """
+
     rule Silva138_V3V4_taxonomy:
         input:
-            rep_seqs = QIIME_DIR / "rep-seqs-analysis.qza",
+            rep_seqs = QIIME_DIR / "rep-seqs-analysis-legacy.qza",
             silva138_nb_classifier = REF_DIR / "Silva138" / "silva138_AB_V3-V4_classifier.qza"
         output:
             taxonomy = QIIME_DIR / "Silva138-taxonomy.qza",
@@ -25,6 +57,7 @@ if region == "region_V3V4":
             "[Silva138] Classifying 16S region V3V4 sequences using Silva138 Naive Bayes Classifier (legacy scikit-learn 0.24.1 container)..."
         shell:
             """
+            set -euo pipefail
             qiime feature-classifier classify-sklearn \
                 --i-classifier {input.silva138_nb_classifier} \
                 --i-reads {input.rep_seqs} \

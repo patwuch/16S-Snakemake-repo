@@ -11,10 +11,7 @@ software-deployment-method: apptainer
 #
 # runtime=1440 (24h): the original 60-minute default killed a real
 # TGS_dada2 run mid-denoising with SLURM's TIME_LIMIT (it has no runtime:
-# of its own, so it silently inherited this default) -- total loss, no
-# partial output, since dada2 isn't checkpointed. 60min suits the many
-# cheap rules this default was written for, but a shared default has to
-# cover the slowest rule that doesn't declare its own, not the typical one.
+# of its own, so it silently inherited this default) 
 default-resources:
   mem_mb: 4000
   runtime: 1440

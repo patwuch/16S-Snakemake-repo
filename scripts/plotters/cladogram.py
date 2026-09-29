@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Vendored from the Huttenhower LEfSe distribution (plot_cladogram.py, shipped
+# here as plugin_lefse_treeplot.py until this rename) with local modifications.
 # 3. ?????????
 import os, sys, matplotlib, argparse, string
 
@@ -112,6 +114,14 @@ def read_params(args):
         "--labeled_stop_lev", dest="labeled_stop_lev", type=int, default=7
     )
     parser.add_argument("--abrv_start_lev", dest="abrv_start_lev", type=int, default=3)
+    # A full taxon name is drawn radially, so it sweeps across whatever sits at
+    # the same radius either side of it. A clade holding a thin slice of the
+    # circle cannot carry one without crossing its neighbours, however few levels
+    # deep it is. Below this many degrees the name is abbreviated to its legend
+    # key instead. 0 keeps the level-only behaviour.
+    parser.add_argument(
+        "--min_label_arc_deg", dest="min_label_arc_deg", type=float, default=0.0
+    )
     parser.add_argument("--abrv_stop_lev", dest="abrv_stop_lev", type=int, default=7)
     parser.add_argument(
         "--expand_void_lev", dest="expand_void_lev", type=int, default=1
@@ -181,8 +191,36 @@ def read_params(args):
         help="raw_class=display_text pairs; lets class values carry a sort-order-encoding "
              "prefix internally while showing clean text",
     )
+    parser.add_argument(
+        "--resolve_placeholders", dest="resolve_placeholders", type=int, choices=[0, 1], default=0,
+        help="1 = name a node whose rank write_res.R backfilled (s__COE1_sp) by the deepest rank "
+             "actually assigned (g__COE1 (no species call)). Default 0 prints the token as-is",
+    )
+    parser.add_argument(
+        "--label_boxes", dest="label_boxes", type=int, choices=[0, 1], default=0,
+        help="1 = draw each keyed node's letter upright in a small box of its group colour with "
+             "a black outline, at its usual place on the clade wedge, instead of as bare "
+             "rotated text in the wedge's own colour. Default 0 keeps the plain layout",
+    )
+    parser.add_argument(
+        "--struc_zeros", dest="struc_zeros", type=str, default="",
+        help="optional TSV of structural-zero taxa ('lineage<TAB>class where present' rows; "
+             "a '#classes' line is ignored). Their nodes are drawn as hollow rings in the "
+             "class colour: present in one group only, so no effect size. Every lineage must "
+             "be a node of the input tree. Empty (default) draws exactly the plain cladogram",
+    )
     args = parser.parse_args()
     args.class_labels = dict(p.split("=", 1) for p in args.class_labels)
+    args.sz = {}
+    args.sz_partial = set()
+    if args.struc_zeros:
+        for line in open(args.struc_zeros):
+            f = line.rstrip("\n").split("\t")
+            if f[0] and f[0] != "#classes":
+                args.sz[f[0]] = f[1]
+                # Optional 4th column: "partial" rows are drawn faded.
+                if len(f) > 3 and f[3] == "partial":
+                    args.sz_partial.add(f[0])
     return vars(args)
 
 
@@ -273,6 +311,18 @@ def read_data(colors, input_file, params):
                     all_nodes[i].set_color(
                         colors[sorted(tree["classes"]).index(v[2]) % len(colors)]
                     )
+    if params["sz"]:
+        missing = set(params["sz"]) - {row[0] for row in rows}
+        if missing:
+            raise ValueError(f"structural-zero lineages absent from the tree: {sorted(missing)[:3]}")
+        for i, v in enumerate(rows):
+            c = params["sz"].get(v[0])
+            if c is not None:
+                if not cls2:
+                    raise ValueError("--struc_zeros needs --all_feats to colour its rings")
+                all_nodes[i].sz_color = colors[cls2.index(c) % len(colors)]
+                all_nodes[i].sz_partial = v[0] in params["sz_partial"]
+        tree["sz_classes"] = sorted(set(params["sz"].values()))
     root = CladeNode("root", -1.0)
     root.set_pos((0.0, 0.0))
 
@@ -338,6 +388,16 @@ def plot_points(father, params, pt_scale, ax):
         if col == "lightgray"
         else params["markeredgewidth"] * 3.0
     )
+    sz_col = getattr(father, "sz_color", None)
+    if sz_col is not None:
+        # Structural zero: a hollow ring, never a filled marker, so it cannot be
+        # read as a tested hit.
+        # Partial (in some samples of its group only): the group's own colour with a
+        # thin ring, not a lighter colour, which could read as another group's shade.
+        partial = getattr(father, "sz_partial", False)
+        ax.plot(x, r, "o", markersize=ps, markerfacecolor="white", markeredgecolor=sz_col,
+                markeredgewidth=params["markeredgewidth"] * (1.5 if partial else 4.0))
+        return x, r
     if x == 0 and r == 0:
         ax.plot(
             x,
@@ -451,12 +511,14 @@ def plot_names(colors, father, params, depth, ax, u_i, seps):
         if i == 0:
             fr_0 = fr
         fr_1 = to
+    sz_col = getattr(father, "sz_color", None)
     if (
         father.get_color()
         != "lightgray"
         # and params["labeled_start_lev"] < l <= params["labeled_stop_lev"] + 1
-    ):
-        col = father.get_color()
+    ) or sz_col is not None:
+        col = father.get_color() if sz_col is None else sz_col
+        group_col = col
         dd = params["labeled_stop_lev"] - params["labeled_start_lev"] + 1
         de = depth - 1
         dim = 1.0 / float(de)
@@ -468,10 +530,19 @@ def plot_names(colors, father, params, depth, ax, u_i, seps):
         des = float(180.0 * (fr_0 + fr_1) / np.pi) * 0.5 - 90
         lab = ""
         txt = father.last_name
-        if params["abrv_start_lev"] < l <= params["abrv_stop_lev"] + 1:
+        name_tok, note = father.last_name, ""
+        if params["resolve_placeholders"]:
+            from placeholder_names import resolve, suffix
+            real, missing = resolve(".".join(father.name))
+            if missing:
+                name_tok, note = real, suffix(missing)
+                txt = name_tok + note
+        wedge_deg = float(180.0 * (fr_1 - fr_0) / np.pi)
+        too_narrow = wedge_deg < params["min_label_arc_deg"]
+        if (params["abrv_start_lev"] < l or too_narrow) and l <= params["abrv_stop_lev"] + 1:
             ide = next(u_i)
-            tax_level = father.last_name.split("_", maxsplit=1)[0]
-            tax_name = father.last_name.split("_", maxsplit=1)[1].replace("_", " ")
+            tax_level = name_tok.split("_", maxsplit=1)[0]
+            tax_name = name_tok.split("_", maxsplit=1)[1].replace("_", " ")
             lab = f"{str(ide)} : {tax_level}_{tax_name}"
             txt = str(ide)
         #        ax.bar(fr_0, clto, width = fr_1-fr_0, bottom = float(l-1)/float(depth-1), alpha = params['alpha'], color=col, edgecolor=col)
@@ -485,33 +556,52 @@ def plot_names(colors, father, params, depth, ax, u_i, seps):
                 + " : "
                 + prefix
                 + r"$\mathit{"
-                + italic_part.replace("_", r"\_")
+                # mathtext drops literal whitespace, and tax_name above has
+                # already turned this name's underscores into spaces. Without
+                # the escape, Helicobacter_C_hepaticus renders as
+                # HelicobacterChepaticus.
+                + italic_part.replace("_", r"\_").replace(" ", r"\ ")
                 + "}$"
             )
         else:
             # ???????????????????????????????????????
             label_text = lab
+        if lab:
+            label_text += note
 
-        ax.bar(
-            fr_0,
-            clto,
-            width=fr_1 - fr_0,
-            bottom=float(l - 1) / float(de),
-            alpha=params["alpha"],
-            color=col,
-            edgecolor=col,
-        )
-        ax.bar(
-            0.0,
-            0.0,
-            width=0.0,
-            bottom=0.0,
-            alpha=1.0,
-            color=col,
-            edgecolor=params["fore_color"],
-            # label=lab,
-            label=label_text,
-        )
+        if sz_col is not None:
+            # Structural zero: the same clade wedge and key as a tested hit, but
+            # hatched rather than filled, in its legend swatch too.
+            ax.bar(fr_0, clto, width=fr_1 - fr_0, bottom=float(l - 1) / float(de),
+                   facecolor="none", edgecolor=col, linewidth=0, alpha=0.55,
+                   hatch="//" if getattr(father, "sz_partial", False) else "//////")
+            partial = getattr(father, "sz_partial", False)
+            # A sparse hatch can miss a small swatch entirely; the dashed outline marks
+            # a partial key entry regardless.
+            ax.bar(0.0, 0.0, width=0.0, bottom=0.0, facecolor="white", edgecolor=col,
+                   hatch="//" if partial else "//////", linestyle="--" if partial else "-",
+                   label=label_text)
+        else:
+            ax.bar(
+                fr_0,
+                clto,
+                width=fr_1 - fr_0,
+                bottom=float(l - 1) / float(de),
+                alpha=params["alpha"],
+                color=col,
+                edgecolor=col,
+            )
+            ax.bar(
+                0.0,
+                0.0,
+                width=0.0,
+                bottom=0.0,
+                alpha=1.0,
+                color=col,
+                edgecolor=params["fore_color"],
+                # label=lab,
+                label=label_text,
+            )
         if l <= params["abrv_stop_lev"] + 1:
             if not params["col_lab"]:
                 col = params["fore_color"]
@@ -520,17 +610,74 @@ def plot_names(colors, father, params, depth, ax, u_i, seps):
                     col = params["fore_color"]
                 else:
                     col = colors[colors.index(col) % len(colors)]
-            ax.text(
-                (fr_0 + fr_1) * 0.5,
-                clto + float(l - 1) / float(de) - dim * perc_ext / 2.0,
-                txt,
-                size=params["label_font_size"],
-                rotation=des,
-                ha="center",
-                va="center",
-                color=col,
-            )
+            if params["label_boxes"] and lab:
+                # Keyed node: an upright letter in a box of its group colour, so it
+                # neither blends into its own (possibly hatched) wedge nor turns
+                # upside down on the lower half of the circle.
+                from matplotlib.colors import to_rgb
+                r_, g_, b_ = to_rgb(group_col)
+                ink = "black" if 0.299 * r_ + 0.587 * g_ + 0.114 * b_ > 0.55 else "white"
+                drawn = ax.text(
+                    (fr_0 + fr_1) * 0.5,
+                    clto + float(l - 1) / float(de) - dim * perc_ext / 2.0,
+                    txt,
+                    size=params["label_font_size"],
+                    rotation=0,
+                    ha="center",
+                    va="center",
+                    color=ink,
+                    fontweight="bold",
+                    zorder=6,
+                    bbox=dict(boxstyle="square,pad=0.25", facecolor=group_col, edgecolor="black",
+                              linewidth=0.5),
+                )
+            else:
+                drawn = ax.text(
+                    (fr_0 + fr_1) * 0.5,
+                    clto + float(l - 1) / float(de) - dim * perc_ext / 2.0,
+                    txt,
+                    size=params["label_font_size"],
+                    rotation=des,
+                    ha="center",
+                    va="center",
+                    color=col,
+                )
+            params["_labels"].append(drawn)
     return fr_0, fr_1
+
+
+def declutter_labels(fig, labels, max_passes=60, step=0.015, max_shift=0.6):
+    """Slide overlapping labels outward along the radius until they clear.
+
+    Sibling clades holding a thin slice of the circle put their labels at the
+    same radius a couple of degrees apart, so the keys land on top of each other
+    and none of them can be read. By the time the labels exist the angles are
+    fixed by the tree, so radius is the only axis left to spend.
+
+    Each pass moves the outer label of every overlapping pair one step further
+    out and re-measures. `max_shift` caps the total displacement so a label in a
+    hopelessly crowded sector settles for being close rather than drifting off
+    the figure.
+    """
+    if not labels:
+        return
+    home = [t.get_position()[1] for t in labels]
+    for _ in range(max_passes):
+        fig.canvas.draw()
+        boxes = [t.get_window_extent() for t in labels]
+        moved = False
+        for i in range(len(labels)):
+            for j in range(i + 1, len(labels)):
+                if not boxes[i].overlaps(boxes[j]):
+                    continue
+                out = i if labels[i].get_position()[1] >= labels[j].get_position()[1] else j
+                theta, r = labels[out].get_position()
+                if r + step - home[out] > max_shift:
+                    continue
+                labels[out].set_position((theta, r + step))
+                moved = True
+        if not moved:
+            return
 
 
 def draw_tree(colors, out_file, tree, params):
@@ -566,7 +713,10 @@ def draw_tree(colors, out_file, tree, params):
     ax = fig.add_subplot(
         111, polar=True, frame_on=False, facecolor=params["back_color"]
     )
-    plt.subplots_adjust(left=-0.03, right=0.9)
+    # Reserve figure margins for the two legends: the taxa key on the right
+    # (--right_space_prop) and the group legend on the left (--left_space_prop).
+    # These were parsed but never applied, so the taxa key overran the border.
+    plt.subplots_adjust(left=params["l_prop"], right=1.0 - params["r_prop"])
     ax.grid(False)
     xticks([])
     yticks([])
@@ -577,7 +727,9 @@ def draw_tree(colors, out_file, tree, params):
 
     plot_lines(tree["root"], params, depth, ax, 0)
     plot_points(tree["root"], params, pt_scale, ax)
+    params["_labels"] = []
     plot_names(colors, tree["root"], params, depth, ax, uniqueid(), seps)
+    declutter_labels(fig, params["_labels"])
     r = np.arange(0, 3.0, 0.01)
     theta = 2 * np.pi * r
 
@@ -585,20 +737,26 @@ def draw_tree(colors, out_file, tree, params):
         return hasattr(x, "set_color") and not hasattr(x, "set_facecolor")
 
     h, l = ax.get_legend_handles_labels()
+    taxa_leg = None
     if len(l) > 0:
         # Each column allows at most 35 species (rows)
         ncol = len(l) // 35 + 1
-        leg = ax.legend(
-            bbox_to_anchor=(1.02, 1),
+        # Start the taxa key at the inner edge of the reserved gutter, hard against
+        # the cladogram, and let it grow outward. Anchoring it to the figure's right
+        # edge instead left a short key stranded across an empty band of gutter.
+        # The final x is settled once the canvas has its true width, below.
+        taxa_leg = ax.legend(
+            bbox_to_anchor=(1.0 - params["r_prop"], 0.995),
+            bbox_transform=fig.transFigure,
             frameon=False,
-            loc=2,
+            loc="upper left",
             borderaxespad=0.0,
             prop={"size": params["label_font_size"]},
             ncol=ncol,
         )
-        if leg != None:
-            gca().add_artist(leg)
-            for o in leg.findobj(get_col_attr):
+        if taxa_leg != None:
+            gca().add_artist(taxa_leg)
+            for o in taxa_leg.findobj(get_col_attr):
                 o.set_color(params["fore_color"])
 
     cll = (
@@ -612,12 +770,30 @@ def draw_tree(colors, out_file, tree, params):
         if c in tree["classes"]
     ]
     cl = [params["class_labels"].get(c, c) for c in cll if c in tree["classes"]]
+    if params["sz"]:
+        # Key every group that has a ring, even one with no tested hit, then the
+        # ring itself.
+        shown = set(tree["classes"]) | set(tree["sz_classes"])
+        nll = [ax.bar(0.0, 0.0, width=0.0, bottom=0.0, color=colors[i % len(colors)], label=c)
+               for i, c in enumerate(cll) if c in shown]
+        cl = [params["class_labels"].get(c, c) for c in cll if c in shown]
+        from matplotlib.lines import Line2D
+        nll.append(Line2D([], [], marker="o", ls="", markersize=6, markerfacecolor="white",
+                          markeredgecolor="dimgray", markeredgewidth=1.5))
+        if params["sz_partial"]:
+            cl.append("hollow ring / hatched: structural zero, in every sample of one group")
+            nll.append(Line2D([], [], marker="o", ls="", markersize=6, markerfacecolor="white",
+                              markeredgecolor="dimgray", markeredgewidth=0.6))
+            cl.append("thin ring / sparse hatch: structural zero, in some samples of one group")
+        else:
+            cl.append("hollow ring / hatched: structural zero (no log2FC)")
 
     ax.set_title(
         params["title"], size=params["title_font_size"], color=params["fore_color"]
     )
+    db_kicker = None
     if params["db_label"]:
-        ax.annotate(
+        db_kicker = ax.annotate(
             params["db_label"],
             xy=(0.5, 1.0),
             xycoords=("axes fraction", "axes fraction"),
@@ -629,11 +805,17 @@ def draw_tree(colors, out_file, tree, params):
             color="gray",
         )
 
+    class_leg = None
     if params["class_legend_vis"]:
-        l2 = legend(
+        # Pin to the bottom-left figure margin (reserved by --left_space_prop).
+        # A bare loc=2 anchors inside the polar axes, dropping the legend on top
+        # of the cladogram.
+        class_leg = l2 = legend(
             nll,
             cl,
-            loc=2,
+            loc="lower left",
+            bbox_to_anchor=(0.005, 0.01),
+            bbox_transform=fig.transFigure,
             prop={"size": params["class_legend_font_size"]},
             frameon=False,
         )
@@ -642,13 +824,26 @@ def draw_tree(colors, out_file, tree, params):
                 o.set_color(params["fore_color"])
     # add bbox to deal with legnd overflow
 
-    # ???????????????????????????????????????????????????
-    fig = plt.gcf()  # ???????????? figure
-    w, h = fig.get_size_inches()  # ?????????????????????
-    fig.set_size_inches(w * 1.1, h * 0.95)  # ??????????????? 20%???????????????
+    # Widen the canvas so that, with margins now reserved on both sides for the
+    # legends, the cladogram itself still renders at a legible size.
+    fig = plt.gcf()
+    w, h = fig.get_size_inches()
+    fig.set_size_inches(w * 1.35, h * 0.95)
 
+    # Settle the taxa key's x now that the canvas has its final width, since that
+    # width is what decides how much of the gutter the key actually needs. It sits
+    # against the cladogram unless it is wide enough to reach the border, in which
+    # case it backs off just far enough to stay inside — the long-key case the
+    # right-edge anchor used to handle for every key, wide or narrow.
+    if taxa_leg is not None:
+        fig.canvas.draw()
+        key_w = taxa_leg.get_window_extent().transformed(fig.transFigure.inverted()).width
+        x = min(1.0 - params["r_prop"], max(0.005, 0.995 - key_w))
+        taxa_leg.set_bbox_to_anchor((x, 0.995), transform=fig.transFigure)
+
+    footnote = None
     if params["footnote"]:
-        fig.text(
+        footnote = fig.text(
             0.5,
             0.01,
             params["footnote"],
@@ -658,13 +853,30 @@ def draw_tree(colors, out_file, tree, params):
             color=params["fore_color"],
         )
 
+    # The gutter is sized for the widest taxa key a run might produce, so a narrow
+    # key leaves dead canvas beyond it. Crop to what was actually drawn.
+    # Both legends have to be named here: a legend parented to the axes is not
+    # part of the figure's own tight bbox, so cropping without them slices the
+    # taxa key off mid-word. The footnote goes in the same list because
+    # bbox_extra_artists REPLACES matplotlib's default artist set rather than
+    # extending it, and figure-level text is in that default. A run with no
+    # markers draws no taxa key, so nothing else holds the crop open and the
+    # footnote was being cut mid-word.
+    # The kicker is in the same position for a subtler reason: Figure.get_tightbbox
+    # forwards bbox_extra_artists down to each Axes, so an axes that is handed a
+    # list stops considering its own children. Only the title is special-cased
+    # back in, which is why the title survived the crop and the kicker above it
+    # did not.
+    extra = [a for a in (taxa_leg, class_leg, footnote, db_kicker) if a is not None]
+
     plt.savefig(
         out_file,
         format=params["format"],
         facecolor=params["back_color"],
         edgecolor=params["fore_color"],
         dpi=params["dpi"],
-        # bbox_inches="tight",
+        bbox_inches="tight",
+        bbox_extra_artists=extra,
     )
     plt.close()
 

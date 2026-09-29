@@ -32,6 +32,7 @@ CB_COLORS_20 = [
     "#DDCC77", "#117733", "#332288", "#AA4499", "#44AA99",
     "#999933", "#882255", "#661100", "#6699CC", "#888888",
 ]
+OTHER_COLOR = "#E0E0E0"
 
 # ================================
 # HELPER FUNCTIONS
@@ -42,24 +43,36 @@ def _natural_sort_key(s):
     return s.map(lambda v: re.sub(r'(\d+)', lambda m: m.group().zfill(10), str(v)))
 
 
+def _is_named(rank):
+    """False for '', a bare prefix like 's__', or an 'Unassigned (...)' label."""
+    rank = str(rank).strip()
+    return not re.fullmatch(r"([a-z]__)?", rank) and not rank.lower().startswith("unassigned")
+
+
 def _is_assigned(val):
     if val is None or pd.isna(val):
         return False
-    val = str(val).strip()
-    return val != "" and not val.lower().startswith("unassigned")
+    return _is_named(val)
 
 
 def _relabel_unassigned(row, level_index):
     """Return a human-readable label, falling back to higher-rank info when unassigned."""
     parts = row["Taxon"].split(";")
     label = parts[level_index].strip() if level_index < len(parts) else ""
-    if not label or "unassigned" in label.lower():
+    if not _is_named(label):
         for higher in reversed(parts[:level_index]):
             higher = higher.strip()
-            if higher and "unassigned" not in higher.lower():
+            if _is_named(higher):
                 return f"Unassigned ({higher})"
         return "Unassigned (All)"
     return label
+
+
+def _colors(columns):
+    # "Other" sits outside the palette, so with 20 named taxa it no longer wraps
+    # round onto the first taxon's colour.
+    return [OTHER_COLOR if c == "Other" else CB_COLORS_20[i % len(CB_COLORS_20)]
+            for i, c in enumerate(columns)]
 
 
 def _dynamic_tick_fontsize(n_samples, min_size=4, max_size=10, scale=120):
@@ -176,7 +189,7 @@ df_plot["Other"] = df_tax_norm.drop(columns=top_taxa).sum(axis=1)
 # ================================
 n_samples     = len(df_plot)
 tick_fontsize = _dynamic_tick_fontsize(n_samples)
-colors        = [CB_COLORS_20[i % len(CB_COLORS_20)] for i in range(df_plot.shape[1])]
+colors        = _colors(df_plot.columns)
 
 fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -262,7 +275,7 @@ df_grouped = (
 # PLOT GROUP MEANS
 # ================================
 n_groups      = len(df_grouped)
-colors        = [CB_COLORS_20[i % len(CB_COLORS_20)] for i in range(df_grouped.shape[1])]
+colors        = _colors(df_grouped.columns)
 
 fig, ax = plt.subplots(figsize=(max(6, n_groups * 1.5), 6))
 

@@ -1,4 +1,7 @@
-# Writer for LEfSe `.res` files, sourced by run_lefse_MicrobiomeMarker.R.
+# Writer for `.res` files, sourced by run_ancombc2.R. The format originates with
+# LEfSe but is not owned by it: it is this pipeline's shared interface to the
+# effect-size barplot and cladogram renderer. (lefse_Huttenhower writes its own
+# `.res` directly from the upstream LEfSe scripts and does not come through here.)
 #
 # A `.res` file is a prefix-closed table over the taxonomy tree, one TAB-separated
 # row per node:
@@ -12,12 +15,6 @@
 # feature lineage rather than from the marker list.
 #
 # The reference semantics are save_res() in scripts/lefse/plugin_lefse_run.py.
-
-# microbiomeMarker names a deeper rank's node by prepending its parent's name
-# ("g__NK4A214_group_s__muris", or "g__NK4A214_group_s__" when the species is
-# unnamed). Reduce it to the plain rank token so all three methods key tree
-# nodes by the same vocabulary.
-unwrap_composed_rank <- function(tok) sub("^[a-z]__.*_([a-z]__)", "\\1", tok)
 
 # The two renderers parse rows with a bare Python .split(), so a space anywhere
 # in a field silently shifts every column after it, and "." is the lineage
@@ -66,7 +63,7 @@ canonical_lineage <- function(lineage, delim = "|") {
   # (domain) while classic LEfSe/MetaPhlAn lineages use "k__" (kingdom). Settle
   # on one so a lineage keys the same tree node whichever produced it.
   parts <- sub("^k__", "d__", parts)
-  fill_unresolved_ranks(sanitize_rank_token(unwrap_composed_rank(parts)))
+  fill_unresolved_ranks(sanitize_rank_token(parts))
 }
 
 canonical_key <- function(lineage, delim = "|") {
@@ -83,7 +80,7 @@ num_field <- function(x) trimws(formatC(as.numeric(x), format = "g", digits = 15
 # markers      data.frame(lineage, class, lda, pvalue) keyed by dot-joined
 #              lineage; NULL or 0 rows when nothing was significant
 # path         output file
-write_lefse_res <- function(counts, group_vec, lineage_map, markers, path) {
+write_res <- function(counts, group_vec, lineage_map, markers, path) {
   stopifnot(ncol(counts) == length(group_vec),
             nrow(counts) == length(lineage_map))
 
@@ -143,12 +140,26 @@ write_lefse_res <- function(counts, group_vec, lineage_map, markers, path) {
   }
 
   fields <- list(keys, num_field(value), cls, lda, pval)
-  if (any(vapply(fields, function(f) any(grepl("[[:space:]]", f)), logical(1))))
-    stop("Whitespace in a .res field would shift every column after it once the ",
-         "renderers split the row.")
+
+  # A tab or newline breaks the row structure itself: both renderers read a .res
+  # with a plain tab split, so these stay banned in every column.
+  if (any(vapply(fields, function(f) any(grepl("[\t\r\n]", f)), logical(1))))
+    stop("A tab or newline in a .res field would break the row structure.")
+
+  # Spaces are a narrower problem than they first look. The vendored plotters do
+  # parse with a bare .split(), but they never see this file: the renderer first
+  # rewrites the class column into a whitespace-free sort key on a temp copy
+  # (scripts/effectsize_cladogram_render.py). So a group label like "High tumor
+  # volume" is legitimate in the class column -- run_lefse_Huttenhower.py
+  # deliberately restores exactly that -- and fatal in every other column, where
+  # a space would shift each field after it.
+  non_class <- fields[-3L]
+  if (any(vapply(non_class, function(f) any(grepl("[[:space:]]", f)), logical(1))))
+    stop("Whitespace in a .res lineage/value/LDA/p-value field would shift ",
+         "every column after it once the renderers split the row.")
 
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   writeLines(do.call(paste, c(fields, sep = "\t")), path)
-  message("[lefse_res] Wrote ", length(keys), " tree node(s), ",
+  message("[res] Wrote ", length(keys), " tree node(s), ",
           sum(nzchar(cls)), " significant, to ", path)
 }
