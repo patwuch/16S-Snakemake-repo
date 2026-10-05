@@ -1,6 +1,6 @@
 """Print a report to PDF with every panel view shown and labelled (the HTML is not modified).
 
-The HTML panels show one view at a time (Species / Genus and above); the PDF
+The HTML panels show one view at a time (Species / Genus and above, Kingdom to Species); the PDF
 shows them all, each headed by its view, and drops the toggle buttons. Each barplot and cladogram
 pair is stacked at full width, and only small units (an image, a caption, a table row, a short
 finding) are kept from splitting across pages.
@@ -43,12 +43,16 @@ table{font-size:.8rem !important}
 table.long td.q{min-width:0 !important}
 /* A status chip with a qualifier ("q < 0.05, not robust") may wrap; the others are one word. */
 table.long td:last-child .chip{white-space:normal !important; display:inline-block}
+/* The structural-zero table's headers ("Absent from first / second") are long; let them wrap on paper. */
+table.pic td.n, table.pic th.n{white-space:normal !important}
 """
 SCALE = 0.85
 CONTENT_MM = 186   # A4 width minus the 12 mm side margins
 JS = """
 () => {
-  const names = {sp: 'Species', gn: 'Genus and above', pa: 'Per-arm fit', j: 'Joint fit'};
+  const names = {sp: 'Species', gn: 'Genus and above', pa: 'Per-arm fit', j: 'Joint fit',
+                 mc: 'MetaCyc pathways', ec: 'Enzymes (EC)', ko: 'KEGG orthologs (KO)',
+                 'rk-k': 'Kingdom', 'rk-p': 'Phylum', 'rk-c': 'Class', 'rk-o': 'Order', 'rk-f': 'Family', 'rk-g': 'Genus', 'rk-s': 'Species'};
   document.querySelectorAll('.pair img').forEach(i => {
     if (i.naturalHeight > 0.8 * i.naturalWidth) i.classList.add('tall');
   });

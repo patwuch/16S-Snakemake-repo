@@ -7,6 +7,12 @@ From: condaforge/miniforge3:latest
 %post
     conda env create -f /opt/envs/ancombc2-env.yaml -p /opt/conda-env
     conda clean -afy
+    # ALDEx3 is on CRAN only; pinned to 1.3.1, dependencies from the conda env.
+    # It compiles (TMB), so the env's make and compilers must be on PATH here.
+    export PATH=/opt/conda-env/bin:$PATH
+    # Current release first; the Archive path once a newer version supersedes it.
+    /opt/conda-env/bin/Rscript -e 'for (u in c("https://cran.r-project.org/src/contrib/ALDEx3_1.3.1.tar.gz", "https://cran.r-project.org/src/contrib/Archive/ALDEx3/ALDEx3_1.3.1.tar.gz")) if (!requireNamespace("ALDEx3", quietly = TRUE)) try(install.packages(u, repos = NULL, type = "source"))'
+    /opt/conda-env/bin/Rscript -e 'stopifnot(packageVersion("ALDEx3") == "1.3.1", packageVersion("ANCOMBC") == "2.14.0")'
 
 %environment
     export PATH=/opt/conda-env/bin:$PATH

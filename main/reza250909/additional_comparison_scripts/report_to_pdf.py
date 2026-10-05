@@ -51,7 +51,9 @@ CONTENT_MM = 186   # A4 width minus the 12 mm side margins
 JS = """
 () => {
   const names = {sp: 'Species', gn: 'Genus and above', pa: 'Per-arm fit', j: 'Joint fit',
-                 mc: 'MetaCyc pathways', ko: 'KEGG orthologs (KO)', ec: 'Enzymes (EC)'};
+                 mc: 'MetaCyc pathways', ko: 'KEGG orthologs (KO)', ec: 'Enzymes (EC)',
+                 sac: 'Acetate', sfo: 'Formate', spr: 'Propionate', sbu: 'Butyrate',
+                 'rk-k': 'Kingdom', 'rk-p': 'Phylum', 'rk-c': 'Class', 'rk-o': 'Order', 'rk-f': 'Family', 'rk-g': 'Genus', 'rk-s': 'Species'};
   document.querySelectorAll('.pair img').forEach(i => {
     if (i.naturalHeight > 0.8 * i.naturalWidth) i.classList.add('tall');
   });

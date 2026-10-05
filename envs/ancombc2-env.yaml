@@ -11,3 +11,15 @@ dependencies:
   - bioconductor-rhdf5
   - r-logistf=1.26.1
   - r-vegan
+  # ALDEx3 (CRAN only, installed in the .def): its dependencies and a compiler for TMB
+  - r-tmb
+  - r-abind
+  - r-matrixstats
+  - r-purrr
+  - r-lme4
+  - r-lmertest
+  - r-reformulas
+  - r-rcppeigen
+  - r-nlme
+  - compilers
+  - make

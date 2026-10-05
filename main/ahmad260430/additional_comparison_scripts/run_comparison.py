@@ -42,16 +42,14 @@ LEFSE_PLUGIN_DIR = REPO_ROOT / "scripts" / "lefse"
 
 QIIME_CONTAINER = REPO_ROOT / "containers" / "qiime2-2025.10-amplicon-core.sif"
 LEFSE_CONTAINER = REPO_ROOT / "containers" / "lefse_MicrobiomeMarker-r-env.sif"
-ANCOMBC_CONTAINER = REPO_ROOT / "containers" / "ancombc2-env.sif"   # ANCOMBC >= 2.14.0
+BIOM_R_CONTAINER = REPO_ROOT / "containers" / "ancombc2-env.sif"    # R with biomformat
+MAASLIN3_CONTAINER = REPO_ROOT / "containers" / "maaslin3-env.sif"  # MaAsLin3 1.5.7
 
 TREATMENTS = {
     "IFA":    "IFA",
     "IFA_IR": "IFA+IR",
 }
 FACTOR = "Timepoint"
-# Whose confirmed taxa define the trajectory panel set. IFA+IR is the only arm
-# where ANCOM-BC2 returns anything under FDR; IFA's best q is 0.053.
-TRAJECTORY_MARKER_ARM = "IFA_IR"
 DAY_ORDER = ["Day17", "Day25"]
 DAY_COLORS = {"Day17": "#E69F00", "Day25": "#56B4E9"}  # Okabe-Ito, matches the main pipeline's palette
 
@@ -194,58 +192,6 @@ def do_lefse(slug, db, subset_metadata, out_dir):
     ], f"{slug}/{db}/lefse-plot")
 
 
-def do_ancombc2(slug, db, out_dir):
-    """FDR-controlled DA beside LEfSe's uncorrected markers.
-
-    LEfSe's -a/-w are raw per-feature cutoffs with no multiple-testing
-    correction, so its counts are not comparable to a q-value. ANCOM-BC2 gives
-    the corrected view, and because the two timepoints are the same four mice it
-    fits a (1|MouseID) random effect that LEfSe has no way to express.
-
-    Lives outside the Snakemake pipeline on purpose: the project-agnostic
-    Snakefile runs only the flattest ANCOM-BC2 and rejects a formula term
-    outright, because what counts as a coefficient here is study context.
-    """
-    apptainer_exec(ANCOMBC_CONTAINER, [
-        "Rscript", str(THIS_DIR / "run_ancombc2_day17_day25.R"),
-        "--arm", slug,
-        "--db", db,
-    ], f"{slug}/{db}/ancombc2-run")
-
-    apptainer_exec(LEFSE_CONTAINER, [
-        "python3", str(THIS_DIR / "plot_lefse_res.py"),
-        "--res", str(art("ANCOMBC2", slug, db, ext="res")),
-        "--db", db,
-        *color_args(),
-        "--lda-title", "ANCOM-BC2 Effect Size",
-        "--cladogram-title", "ANCOM-BC2 Cladogram",
-        # The arm belongs in the figure, not only in the report caption: four
-        # fits share these titles and differ otherwise only by the database.
-        "--context", f"{TREATMENTS[slug]} arm",
-        # Not mdFDR: this fit runs group = NULL, so the correction is plain
-        # Benjamini-Hochberg across features and the axis has to say so.
-        "--effect-label", "|log2FC| (BH-adjusted)",
-        "--lda-svg", str(art("ANCOMBC2", slug, db, "barplot", ext="svg")),
-        "--cladogram-svg", str(art("ANCOMBC2", slug, db, "cladogram", ext="svg")),
-        "--lda-png", str(art("ANCOMBC2", slug, db, "barplot", ext="png")),
-        "--cladogram-png", str(art("ANCOMBC2", slug, db, "cladogram", ext="png")),
-    ], f"{slug}/{db}/ancombc2-plot")
-
-
-def do_trajectories(db, markers_from):
-    """Per-mouse slopes for the taxa ANCOM-BC2 confirmed.
-
-    Runs once per database rather than once per arm: the panel set comes from
-    one arm's markers and the script draws every arm against it, so the same
-    taxa can be read across arms.
-    """
-    apptainer_exec(QIIME_CONTAINER, [
-        "python3", str(THIS_DIR / "plot_trajectories_day17_day25.py"),
-        "--db", db,
-        "--markers-from", markers_from,
-    ], f"{db}/trajectories")
-
-
 def do_alpha(slug, db, metric, vector, subset_metadata, out_dir):
     apptainer_exec(QIIME_CONTAINER, [
         "python3", str(THIS_DIR / "plot_diversity.py"), "alpha",
@@ -299,52 +245,28 @@ def do_taxa_barplot(slug, db, level, subset_metadata, out_dir):
     ], f"{slug}/{db}/taxa-{level}")
 
 
-def render_ancombc2(res_stem, db, context):
-    apptainer_exec(LEFSE_CONTAINER, [
-        "python3", str(THIS_DIR / "plot_lefse_res.py"),
-        "--res", str(OUT_DIR / "tables" / f"{res_stem}.res"),
-        "--db", db,
-        *color_args(),
-        "--lda-title", "ANCOM-BC2 Effect Size",
-        "--cladogram-title", "ANCOM-BC2 Cladogram",
-        "--context", context,
-        "--effect-label", "|log2FC| (BH-adjusted)",
-        "--lda-svg", str(OUT_DIR / "figures" / f"{res_stem}_barplot.svg"),
-        "--cladogram-svg", str(OUT_DIR / "figures" / f"{res_stem}_cladogram.svg"),
-        "--lda-png", str(OUT_DIR / "figures" / f"{res_stem}_barplot.png"),
-        "--cladogram-png", str(OUT_DIR / "figures" / f"{res_stem}_cladogram.png"),
-    ], f"{res_stem}/plot")
-
-
 def do_report_inputs(db="Greengenes2"):
     """Everything report.html reads beyond the per-arm outputs, then a check of the page.
 
-    Diversity statistics and their figures, the joint Timepoint x Arm ANCOM-BC2
-    fit, the genus-and-above views and the interaction forest plots. The report
-    is Greengenes2-only, so these are too.
+    Diversity statistics and their figures, the MaAsLin3 fits (both databases; the
+    report uses Greengenes2), the structural-zero tables and heatmap, and the
+    MaAsLin3 heatmaps and forest plots.
     """
     apptainer_exec(QIIME_CONTAINER, [
         "python3", str(THIS_DIR / "run_diversity_day17_day25.py"), str(OUT_DIR)], "diversity-stats")
     apptainer_exec(QIIME_CONTAINER, [
         "python3", str(THIS_DIR / "plot_beta_day17_day25.py")], "diversity-plots")
-    apptainer_exec(ANCOMBC_CONTAINER, [
-        "Rscript", str(THIS_DIR / "run_ancombc2_day17_day25_joint.R"), "--db", db], "ancombc2-joint")
-    apptainer_exec(QIIME_CONTAINER, [
-        "python3", str(THIS_DIR / "genus_plus_res.py"), "--dir", OUT_DIR.name,
-        "--pattern", f"ANCOMBC2_day17day25_*{db}*.res"], "genus-plus")
-    for slug in TREATMENTS:
-        render_ancombc2(f"ANCOMBC2_day17day25_{slug}_{db}_gplus", db,
-                        f"{TREATMENTS[slug]} arm · genus-level names only")
-        for g, tail in (("", ""), ("_gplus", " · genus-level names only")):
-            render_ancombc2(f"ANCOMBC2_day17day25_joint_{db}_armref{slug}{g}", db,
-                            f"{TREATMENTS[slug]} arm · joint Timepoint × Arm model{tail}")
-    for flag in ([], ["--genus-names-only"]):
-        apptainer_exec(QIIME_CONTAINER, [
-            "python3", str(THIS_DIR / "plot_interaction_forest.py"), "--dir", OUT_DIR.name,
-            "--prefix", "ANCOMBC2_day17day25_joint_", "--db", db, "--suffix", "_armrefIFA",
-            "--note", "Day17 vs Day25 · zero = both arms shift alike", *flag], "interaction-forest")
-    apptainer_exec(QIIME_CONTAINER, [
-        "python3", str(THIS_DIR / "check_report_day17_day25.py")], "report-check")
+    for d in ("Greengenes2", "Silva138"):
+        # ancombc2-env.sif only for its BIOM reader; nothing here fits ANCOM-BC2.
+        apptainer_exec(BIOM_R_CONTAINER, [
+            "Rscript", str(THIS_DIR / "export_counts_day17_day25.R"), "--db", d], f"{d}/export-counts")
+        apptainer_exec(MAASLIN3_CONTAINER, [
+            "Rscript", str(THIS_DIR / "run_maaslin3_day17_day25.R"), "--db", d], f"{d}/maaslin3")
+    for script, args in (("structural_zeros_day17_day25.py", []),
+                         ("plot_presence_day17_day25.py", []),
+                         ("plot_maaslin3_day17_day25.py", []),
+                         ("check_report_day17_day25.py", [])):
+        apptainer_exec(QIIME_CONTAINER, ["python3", str(THIS_DIR / script), *args], script)
 
 
 def main():
@@ -370,7 +292,6 @@ def main():
 
         for db in taxonomy_ready:
             do_lefse(slug, db, subset_metadata, out_dir)
-            do_ancombc2(slug, db, out_dir)
             for level in TAXA_LEVELS:
                 do_taxa_barplot(slug, db, level, subset_metadata, out_dir)
 
@@ -392,13 +313,9 @@ def main():
                 pcoa_name = f"{db}-{metric.replace('_', '-')}-pcoa-results.qza"
                 do_beta(slug, db, metric, CORE_METRICS_DIR / pcoa_name, subset_metadata, out_dir)
 
-    # After every arm has an ANCOM-BC2 fit, since the panel set comes from one
-    # arm and is drawn for all of them.
-    if not args.only_treatment:
-        for db in taxonomy_ready:
-            do_trajectories(db, TRAJECTORY_MARKER_ARM)
-        if "Greengenes2" in taxonomy_ready:
-            do_report_inputs()
+    # Both arms are fitted together, so this runs once, after every arm.
+    if not args.only_treatment and "Greengenes2" in taxonomy_ready:
+        do_report_inputs()
 
     print("\nDone.")
 

@@ -1,0 +1,21 @@
+# Standalone LinDA (zhouhj1994/LinDA 0.2.0, GitHub only, installed in
+# containers/linda-env.def) for per-project factorial DA fits, e.g.
+# main/ahmad260430/additional_comparison_scripts/run_linda_factorial.R.
+# Not MicrobiomeStat's copy: CRAN 1.4's adaptive zero handling never selects
+# imputation, and GitHub 1.5.x has no linda.wald.test.
+name: linda
+channels:
+  - conda-forge
+  - bioconda
+platforms:
+  - linux-64
+dependencies:
+  - r-base>=4.5,<4.6
+  # LinDA's NAMESPACE imports
+  - r-foreach
+  - r-ggplot2
+  - r-ggrepel
+  - r-lmertest
+  - r-modeest
+  # Hartigan dip test for the mode check (check_linda_mode.R)
+  - r-diptest

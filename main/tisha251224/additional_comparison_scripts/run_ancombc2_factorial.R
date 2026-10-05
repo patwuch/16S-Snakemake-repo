@@ -136,11 +136,23 @@ if (out_suffix == "") {
     i <- which(cell == k)[1]; sprintf("%s (n=%d)", meta$Group[i], sum(cell == k)) })
   excl_df <- data.frame(taxon = rownames(counts)[excl], n_samples = n_present[excl],
                         per_cell, check.names = FALSE)
-  excl_path <- file.path(TAB_DIR, paste0("ANCOMBC2_factorial_", DB, "_untestable_absent_from_a_cell.tsv"))
+  # Named for the presence analyses that read it, not for a DA method.
+  excl_path <- file.path(TAB_DIR, paste0("presence_factorial_", DB, "_untestable_absent_from_a_cell.tsv"))
   write.table(excl_df, excl_path, sep = "\t", quote = FALSE, row.names = FALSE)
   .say("Wrote ", excl_path, " (", nrow(excl_df), " taxa)")
 }
 counts <- counts[keep, , drop = FALSE]
+# The tested taxa after collapse and both filters, so LinDA fits exactly these
+# features. "--export-only" stops here.
+write.table(data.frame(taxon = rownames(counts), counts, check.names = FALSE),
+            file.path(TAB_DIR, paste0("tested_counts_", DB, out_suffix, ".tsv")),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+# The same taxa as a plain list: with the untestable table, the presence
+# analyses' fixed taxon set (every taxon in >= --min-presence samples).
+if (out_suffix == "")
+  write.table(data.frame(taxon = rownames(counts)), file.path(TAB_DIR, paste0("presence_factorial_", DB, ".tsv")),
+              sep = "\t", quote = FALSE, row.names = FALSE)
+if ("--export-only" %in% args) quit(save = "no")
 
 FIX_FORMULA <- "Diet * Condition"
 # The empty-cell failure's only symptom is a recycling warning; with the

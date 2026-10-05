@@ -1,6 +1,6 @@
 """Print a report to PDF with every panel view shown and labelled (the HTML is not modified).
 
-The HTML panels show one view at a time (Species / Genus and above, Per-arm / Joint); the PDF
+The HTML panels show one view at a time (Species / Genus and above, Per-arm / Joint, MetaCyc / KO / EC); the PDF
 shows them all, each headed by its view, and drops the toggle buttons. Each barplot and cladogram
 pair is stacked at full width, and only small units (an image, a caption, a table row, a short
 finding) are kept from splitting across pages.
@@ -41,18 +41,25 @@ th, td{white-space:normal !important; padding-right:8px !important}
 td.n, th.n, .chip{white-space:nowrap !important}
 table{font-size:.8rem !important}
 table.long td.q{min-width:0 !important}
+/* A status chip with a qualifier ("q < 0.05, not robust") may wrap; the others are one word. */
+table.long td:last-child .chip{white-space:normal !important; display:inline-block}
+/* The PICRUSt2 table's count cells and headers ("1,111 / 3,567 (~178)") are long; let them wrap on paper. */
+table.pic td.n, table.pic th.n{white-space:normal !important}
 """
 SCALE = 0.85
 CONTENT_MM = 186   # A4 width minus the 12 mm side margins
 JS = """
 () => {
-  const names = {sp: 'Species', gn: 'Genus and above', pa: 'Per-arm fit', j: 'Joint fit'};
+  const names = {sp: 'Species', gn: 'Genus and above', pa: 'Per-arm fit', j: 'Joint fit',
+                 mc: 'MetaCyc pathways', ko: 'KEGG orthologs (KO)', ec: 'Enzymes (EC)',
+                 tgi: 'Inosine', tgf: 'Isoferulic acid',
+                 'rk-k': 'Kingdom', 'rk-p': 'Phylum', 'rk-c': 'Class', 'rk-o': 'Order', 'rk-f': 'Family', 'rk-g': 'Genus', 'rk-s': 'Species'};
   document.querySelectorAll('.pair img').forEach(i => {
     if (i.naturalHeight > 0.8 * i.naturalWidth) i.classList.add('tall');
   });
   document.querySelectorAll('.panel .view').forEach(v => {
     const parts = [...v.classList].filter(c => c in names).map(c => names[c]);
-    const order = ['Per-arm fit', 'Joint fit', 'Species', 'Genus and above'];
+    const order = ['Per-arm fit', 'Joint fit', 'Species', 'Genus and above', 'MetaCyc pathways', 'KEGG orthologs (KO)', 'Enzymes (EC)'];
     parts.sort((a, b) => order.indexOf(a) - order.indexOf(b));
     const d = document.createElement('div'); d.className = 'view-label';
     d.textContent = parts.join(' · '); v.prepend(d);

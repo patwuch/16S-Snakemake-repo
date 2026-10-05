@@ -14,7 +14,9 @@ it and seen on the other, an exact test of presence counts.
     animals present on one side only.
 
 q is Benjamini-Hochberg over every (taxon, contrast) test in the report, one
-family. Presence is recomputed from the counts and checked against the
+family. Each row also gives the taxon's share of reads in the mice that carry it
+(median, min, max, in percent of that mouse's unrarefied reads), which the test
+does not use. Presence is recomputed from the counts and checked against the
 untestable table.
 
 Writes tables/<STEM>_structural_zeros.tsv, one row per test, and prints one
@@ -43,7 +45,7 @@ STUDY_DIR = os.path.dirname(THIS_DIR)
 OUT_DIR = os.path.join(STUDY_DIR, "comparison-Diet-x-Condition-factorial")
 META = os.path.join(OUT_DIR, "metadata_factorial.tsv")
 META_FILTER = None
-STEM = "ANCOMBC2_factorial_Greengenes2"
+STEM = "presence_factorial_Greengenes2"
 PAIR_BY = None              # metadata column naming the animal, when contrasts are paired
 # (question, label, first-named group, second group), as the DA table words them
 CONTRASTS = [
@@ -68,18 +70,36 @@ def mcnemar_exact(b, c):
     return 1.0 if n == 0 else min(1.0, 2 * binom.cdf(min(b, c), n, 0.5))
 
 
-def presence():
+def abundance():
+    """Metadata and each collapsed taxon's percent of every mouse's reads."""
     meta = pd.read_csv(META, sep="\t", index_col=0, keep_default_na=False, na_values=[""])
     if META_FILTER:
         meta = meta[meta[META_FILTER[0]] == META_FILTER[1]]
     counts = biom.load_table(os.path.join(STUDY_DIR, "tables", "study-seqs.biom")).to_dataframe(dense=True)[meta.index]
     tax = pd.read_csv(os.path.join(STUDY_DIR, "tables", "exported-taxonomy", "Greengenes2_taxonomy.tsv"),
                       sep="\t", index_col=0)["Taxon"]
-    return meta, collapse(counts, tax) > 0
+    return meta, collapse(counts, tax) / counts.sum() * 100
+
+
+def presence():
+    meta, pct = abundance()
+    return meta, pct > 0
+
+
+def pct_str(v):
+    """Percent of reads to two significant figures, trailing zero kept: 0.0062, 0.050, 3.0, 12."""
+    return f"{v:#.2g}".rstrip(".") if v < 100 else f"{v:.0f}"
+
+
+def share(vals):
+    """'median% (min–max%)' over the carriers; the median alone for one carrier."""
+    med = f"{pct_str(np.median(vals))}%"
+    return med if len(vals) == 1 else f"{med} ({pct_str(min(vals))}–{pct_str(max(vals))}%)"
 
 
 def tests():
-    meta, pres = presence()
+    meta, pct = abundance()
+    pres = pct > 0
     un = pd.read_csv(os.path.join(TAB_DIR, f"{STEM}_untestable_absent_from_a_cell.tsv"), sep="\t")
     cols = {c.split(" (n=")[0]: c for c in un.columns if "(n=" in c}
     for g, c in cols.items():
@@ -104,10 +124,24 @@ def tests():
                 test = "Fisher exact"
             out.append(dict(question=q, contrast=label, taxon=t, absent_from=a if ka == 0 else b,
                             present_in=b if ka == 0 else a, n_present=max(ka, kb),
-                            n_group=len(sb) if ka == 0 else len(sa), test=test, p=p))
+                            n_group=len(sb) if ka == 0 else len(sa), test=test, p=p,
+                            **carriers(pct.loc[t, sb if ka == 0 else sa])))
     df = pd.DataFrame(out)
     df["q"] = multipletests(df.p, method="fdr_bh")[1] if len(df) else []
     return df
+
+
+def carriers(row):
+    v = row[row > 0].values
+    return dict(carrier_median_pct=np.median(v), carrier_min_pct=v.min(), carrier_max_pct=v.max(),
+                carrier_share=share(v))
+
+
+def one_read_pct():
+    """The largest share one read can be of any mouse's reads (the shallowest mouse)."""
+    meta, _ = abundance()
+    counts = biom.load_table(os.path.join(STUDY_DIR, "tables", "study-seqs.biom")).to_dataframe(dense=True)[meta.index]
+    return 100 / counts.sum().min()
 
 
 def summary(df):
@@ -117,7 +151,9 @@ def summary(df):
         rows.append(dict(question=q, label=label, first=a, second=b, n=len(d),
                          absent_first=int((d.absent_from == a).sum()), absent_second=int((d.absent_from == b).sum()),
                          min_p=d.p.min() if len(d) else None, min_q=d.q.min() if len(d) else None,
-                         n_sig=int((d.q < 0.05).sum()), n_half=int((d.n_present * 2 >= d.n_group).sum())))
+                         n_sig=int((d.q < 0.05).sum()), n_half=int((d.n_present * 2 >= d.n_group).sum()),
+                         med_lo=d.carrier_median_pct.min() if len(d) else None,
+                         med_hi=d.carrier_median_pct.max() if len(d) else None))
     return rows
 
 
@@ -125,6 +161,8 @@ def main():
     df = tests()
     df.to_csv(os.path.join(TAB_DIR, f"{STEM}_structural_zeros.tsv"), sep="\t", index=False)
     print(f"{len(df)} tests; q < 0.05: {(df.q < 0.05).sum()}; smallest p {df.p.min():.3g}, smallest q {df.q.min():.3g}")
+    print(f"carriers' median share of reads: {df.carrier_median_pct.min():.2g}% to {df.carrier_median_pct.max():.2g}% "
+          f"(median {df.carrier_median_pct.median():.2g}%); one read is at most {one_read_pct():.2g}% of a mouse's reads")
     for r in summary(df):
         print(f"  {r['label']:<24} {r['n']:>2} taxa (absent from {r['first']} {r['absent_first']}, from {r['second']} "
               f"{r['absent_second']}); present in >= half the other group: {r['n_half']}; "

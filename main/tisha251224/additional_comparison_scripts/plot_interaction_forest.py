@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forest plot of the Diet x Condition ANCOM-BC2 interaction coefficients.
+"""Forest plot of the Diet x Condition interaction coefficients (MaAsLin3; formerly ANCOM-BC2).
 
 Ported from ahmad260430's plot_interaction_forest.py. The interaction terms are
 where the factorial fit answers "does irradiation change what a diet does",
@@ -11,7 +11,7 @@ the Cellulose-reference fit; RS against Inulin from the Inulin-reference fit,
 whose estimates for the shared contrasts are identical to the first fit's.
 
 Usage, inside the qiime2 container:
-    python3 plot_interaction_forest.py [--suffix _minpres12] [--genus-names-only]
+    python3 plot_interaction_forest.py [--prefix MaAsLin3_factorial_] [--suffix _int] [--genus-names-only]
 """
 import argparse
 import math
@@ -31,6 +31,11 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 STUDY_DIR = os.path.dirname(THIS_DIR)
 
 LN2 = math.log(2)
+# Per table prefix: divisor to log2 units, and the method named in the title.
+# ANCOM-BC2 estimates are natural-log; write_maaslin3_res.R writes log2.
+METHOD = {"ANCOMBC2_factorial_": (LN2, "ANCOM-BC2", "Interaction log2 fold change (95% CI)"),
+          "MaAsLin3_factorial_": (1.0, "MaAsLin3", "Interaction, log2 change in share of reads (95% CI)")}
+SCALE, METHOD_NAME, X_LABEL = METHOD["MaAsLin3_factorial_"]
 ALPHA = 0.05
 
 # Panel key -> (fit suffix, coefficient). Hues are the irradiated (dark) steps
@@ -93,14 +98,15 @@ def axis_labels(lineages):
     return out
 
 
-# Residual df of the factorial fit: 19 samples minus 6 coefficients. ANCOM-BC2's
-# per-taxon df never exceeds it, so it is the fallback when W and p are too close
-# to null to pin df down; such taxa cover zero at any df.
+# Residual df of the factorial fit: 19 samples minus 6 coefficients. Neither
+# method's per-taxon df exceeds it (MaAsLin3 fits present samples only, with a
+# depth covariate), so it is the fallback when W and p are too close to null to
+# pin df down; such taxa cover zero at any df.
 MAX_DF = 13
 
 
 def implied_df(w, p):
-    """The t degrees of freedom at which 2 * P(T > |w|) equals ANCOM-BC2's p."""
+    """The t degrees of freedom at which 2 * P(T > |w|) equals the method's p."""
     if not (np.isfinite(w) and np.isfinite(p)) or p >= 0.999 or abs(w) < 0.05:
         return MAX_DF
     f = lambda v: 2 * t_dist.sf(abs(w), v) - p
@@ -156,18 +162,18 @@ def coefficient_frame(df, coef, q_override=None):
     ss = f"passed_ss_{coef}"
     out = pd.DataFrame({
         "taxon": df["taxon"],
-        "est": pd.to_numeric(df[lfc], errors="coerce") / LN2,
-        "se": pd.to_numeric(df[se], errors="coerce") / LN2,
+        "est": pd.to_numeric(df[lfc], errors="coerce") / SCALE,
+        "se": pd.to_numeric(df[se], errors="coerce") / SCALE,
         "W": pd.to_numeric(df[f"W_{coef}"], errors="coerce"),
         "p": pd.to_numeric(df[f"p_{coef}"], errors="coerce"),
         "q": df["taxon"].map(q_override) if q_override is not None else pd.to_numeric(df[q], errors="coerce"),
         "ss": df[ss].astype(str).str.upper().eq("TRUE") if ss in df else True,
     })
-    # ANCOM-BC2 tests W against a t distribution with per-taxon degrees of
+    # Both methods test W against a t distribution with per-taxon degrees of
     # freedom (1 to 13 here), not a normal, so +/-1.96 SE draws intervals that
     # clear zero for taxa whose own p is as high as 0.23. Recover each taxon's
     # df from its W and p and use the matching t quantile, so an interval
-    # excludes zero exactly when ANCOM-BC2's p < 0.05.
+    # excludes zero exactly when the method's p < 0.05.
     out["df"] = [implied_df(w, p) for w, p in zip(out.W, out.p)]
     half = t_dist.ppf(0.975, out.df) * out.se
     out["lo"] = out.est - half
@@ -249,15 +255,17 @@ def draw_panel(ax, frame, coef, show_labels):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dir", default="comparison-Diet-x-Condition-factorial")
-    ap.add_argument("--prefix", default="ANCOMBC2_factorial_")
+    ap.add_argument("--prefix", default="MaAsLin3_factorial_")
     ap.add_argument("--db", default="Greengenes2")
-    ap.add_argument("--suffix", default="", help="prevalence tag, e.g. _minpres12")
+    ap.add_argument("--suffix", default="_int", help="table tag after the database, e.g. _int")
     ap.add_argument("--note", default="zero = irradiation moves both diets alike · "
                                       "right of zero = irradiation raises the taxon more on the first-named")
     ap.add_argument("--genus-names-only", action="store_true",
                     help="draw only taxa whose deepest name is a genus or higher; same fit, "
                          "same q-values, species-resolved rows left out")
     args = ap.parse_args()
+    global SCALE, METHOD_NAME, X_LABEL
+    SCALE, METHOD_NAME, X_LABEL = METHOD[args.prefix]
 
     tab_dir = os.path.join(STUDY_DIR, args.dir, "tables")
     fig_dir = os.path.join(STUDY_DIR, args.dir, "figures")
@@ -314,11 +322,11 @@ def main():
     for ax, coef in zip(axes, coefs):
         draw_clip_arrows(ax, frames[coef], coef)
 
-    fig.suptitle("ANCOM-BC2 interaction coefficients", fontsize=12.5,
+    fig.suptitle(f"{METHOD_NAME} interaction coefficients", fontsize=12.5,
                  color=TEXT_INK, y=top_(0.20))
     fig.text(0.5, top_(0.59), f"{args.db} · {'genus-level names only · ' if args.genus_names_only else ''}"
-             f"95% CI from ANCOM-BC2's own t test · q corrected across all three panels · {args.note}", ha="center", fontsize=8, color=MUTED_INK)
-    fig.text(0.5, bot_(0.82), "Interaction log2 fold change (95% CI)",
+             f"95% CI from {METHOD_NAME}'s own t test · q corrected across all three panels · {args.note}", ha="center", fontsize=8, color=MUTED_INK)
+    fig.text(0.5, bot_(0.82), X_LABEL,
              ha="center", fontsize=9, color=TEXT_INK)
 
     survives = sum(int((f.state == "survives").sum()) for f in frames.values())

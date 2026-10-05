@@ -1,0 +1,21 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%files
+    envs/linda-env.yaml /opt/envs/linda-env.yaml
+
+%post
+    conda env create -f /opt/envs/linda-env.yaml -p /opt/conda-env
+    conda clean -afy
+    # LinDA is on GitHub only and pure R; pinned to the last commit (0.2.0, 2023-12-16).
+    /opt/conda-env/bin/Rscript -e 'install.packages("https://github.com/zhouhj1994/LinDA/archive/af0f62fad83f25a0df272da9ccbec7db49149166.tar.gz", repos = NULL, type = "source")'
+    /opt/conda-env/bin/Rscript -e 'stopifnot(packageVersion("LinDA") == "0.2.0"); library(LinDA); stopifnot(exists("linda.wald.test"))'
+
+%environment
+    export PATH=/opt/conda-env/bin:$PATH
+
+%runscript
+    exec "$@"
+
+%labels
+    Source envs/linda-env.yaml

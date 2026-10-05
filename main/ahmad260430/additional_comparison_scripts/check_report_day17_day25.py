@@ -53,70 +53,94 @@ for r in beta.itertuples():
         expect(f"{r.mean_within_d25:.3f}", f"beta {r.arm} {r.metric} within D25")
 
 
-def load(name):
-    return pd.read_csv(os.path.join(TAB, name), sep="\t").set_index("taxon")
+# ---- ANCOM-BC2, the McNemar tests and the turnover test are out of this report ----
+for word in ("ancom", "mcnemar", "turnover"):
+    if word in html.lower():
+        misses.append(f"'{word}' still appears in the report")
+
+M3 = pd.read_csv(os.path.join(TAB, "MaAsLin3_day17day25_Greengenes2.tsv"), sep="\t")
+M3_ALL = pd.read_csv(os.path.join(TAB, "MaAsLin3_day17day25_Greengenes2_all_sets.tsv"), sep="\t")
+NOREADS = pd.read_csv(os.path.join(TAB, "MaAsLin3_day17day25_noreads_Greengenes2.tsv"), sep="\t")
+SZ = pd.read_csv(os.path.join(TAB, "DA_day17day25_Greengenes2_structural_zeros.tsv"), sep="\t")
+ABUND, PREV = M3.model == "abundance", M3.model == "prevalence"
 
 
-def hits(df, coef="TimepointDay25"):
-    ok = (df[f"q_{coef}"] < 0.05) & df[f"passed_ss_{coef}"].astype(str).str.upper().eq("TRUE")
-    return df[ok]
+def calls(d):
+    return int((d.q < 0.05).sum())
 
 
-per_arm = {a: load(f"ANCOMBC2_day17day25_{a}_Greengenes2.tsv") for a in ("IFA", "IFA_IR")}
-unpaired = {a: load(f"ANCOMBC2_day17day25_{a}_Greengenes2_unpaired.tsv") for a in ("IFA", "IFA_IR")}
-joint = {a: load(f"ANCOMBC2_day17day25_joint_Greengenes2_armref{a}.tsv") for a in ("IFA", "IFA_IR")}
+# Taxon counts in the DA opener.
+n_u = M3_ALL.feature[M3_ALL.set == "U"].nunique()
+n_s1 = M3_ALL.feature[M3_ALL.set == "S1"].nunique()
+expect(f"which gives {n_u} taxa. {n_s1} of them are seen in each of the four arm × day groups", "U and S1 counts")
+expect(f"The other {n_u - n_s1} are missing from every sample", "structural-zero count")
+if SZ.taxon.nunique() != n_u - n_s1:
+    misses.append("structural-zero table does not hold every taxon missing from a group")
+skipped = M3[ABUND].groupby("row").skipped_median.sum()
+expect(f"(up to {int(skipped.max())} taxa per comparison)", "median-test skips")
+depth = pd.read_csv(os.path.join(TAB, "collapsed_counts_day17day25_Greengenes2.tsv"), sep="\t", index_col=0).sum()
+expect(f"({depth.min():,}–{depth.max():,} reads per sample)", "depth range")
 
-expect(f"{per_arm['IFA'].q_TimepointDay25.min():.3f} / {joint['IFA'].q_TimepointDay25.min():.4f}", "IFA min q pair")
-expect(f"{per_arm['IFA_IR'].q_TimepointDay25.min():.3f} / {joint['IFA_IR'].q_TimepointDay25.min():.4f}", "IFA+IR min q pair")
-est = {a: d.se_TimepointDay25.notna().sum() for a, d in per_arm.items()}
-expect(f"{len(per_arm['IFA'])} taxa in IFA and {len(per_arm['IFA_IR'])} in IFA+IR", "per-arm tested")
-expect(f"Of those, {est['IFA']} and {est['IFA_IR']} have an estimable effect", "per-arm estimable")
-expect(f"return {len(hits(unpaired['IFA']))} taxa in IFA and {len(hits(unpaired['IFA_IR']))} in IFA+IR", "unpaired counts")
-both = hits(per_arm["IFA_IR"]).index.intersection(hits(joint["IFA_IR"]).index)
-# DA table counts: per-arm, joint, both.
-for arm, label in (("IFA", "IFA"), ("IFA_IR", "IFA+IR")):
-    cells = (len(hits(per_arm[arm])), len(hits(joint[arm])),
-             len(hits(per_arm[arm]).index.intersection(hits(joint[arm]).index)))
-    want = "".join(f'<td class="n">{c}</td>' for c in cells)
-    if f"<td>{label}</td>{want}" not in html:
-        misses.append(f"DA table row {label}: tables give per-arm/joint/both {cells}")
-fail = lambda d: int(((d.q_TimepointDay25 < 0.05) & ~d.index.isin(hits(d).index)).sum())
-expect(f"The per-arm fit finds no taxon: {fail(per_arm['IFA_IR'])} reach q &lt; 0.05", "IFA+IR per-arm failing count")
-expect(f"{fail(joint['IFA_IR'])} more reach q &lt; 0.05 there", "IFA+IR joint failing count")
-expect(f"has {fail(joint['IFA'])} taxa at q &lt; 0.05 with IFA as the reference arm, and all {fail(joint['IFA'])} fail",
-       "IFA joint failing count")
-if len(hits(per_arm["IFA_IR"])) or len(hits(per_arm["IFA"])) or len(hits(joint["IFA"])) or len(both):
-    misses.append("DA prose says no per-arm hit, no joint IFA hit and no taxon in both models")
-hj = hits(joint["IFA_IR"]).lfc_TimepointDay25 / LN2
-names = {t.split(";")[-2 if t.rstrip().endswith("__") else -1].strip(): v for t, v in hj.items()}
-if sorted(names) != ["g__Borkfalkia", "s__Lawsonibacter sp000492175"]:
-    misses.append(f"joint IFA+IR hits are {sorted(names)}, prose names Borkfalkia and Lawsonibacter")
-else:
-    expect(f"+{names['g__Borkfalkia']:.2f} log2 (about {2 ** names['g__Borkfalkia']:.0f}-fold", "Borkfalkia estimate")
-    expect(f"sp000492175, +{names['s__Lawsonibacter sp000492175']:.2f}", "Lawsonibacter estimate")
-expect(f"tests {len(joint['IFA'])} taxa", "joint tested")
-ic = "TimepointDay25:ArmIFA_IR"
-expect(f"smallest q is {joint['IFA'][f'q_{ic}'].min():.3f}", "interaction min q")
-sing = pd.read_csv(os.path.join(TAB, "ANCOMBC2_day17day25_joint_Greengenes2_armrefIFA_singular.tsv"), sep="\t")
-expect(f"{int(sing.singular.sum())} of the joint model's {len(sing)}", "joint singular count")
+# MaAsLin3 question table, one html row per comparison.
+LABEL = {"Day 17 to 25 in IFA": "In IFA", "Day 17 to 25 in IFA+IR": "In IFA+IR",
+         "Average Day 17 to 25 shift": "Averaged over both arms", "IFA+IR vs IFA at Day 17": "At Day 17",
+         "IFA+IR vs IFA at Day 25": "At Day 25", "Average IFA+IR vs IFA": "Averaged over both days",
+         "Interaction (IFA+IR shift minus IFA shift)": "IFA+IR change minus IFA change"}
+for row, lab in LABEL.items():
+    a, p = M3[ABUND & (M3.row == row)], M3[PREV & (M3.row == row)]
+    pres = "—" if p.q.notna().sum() == 0 else f"{p.q.notna().sum()} / {calls(p)}"
+    qmin = M3[M3.row == row].q.min()
+    qtxt = f"<b>{qmin:.3f}</b>" if qmin < 0.05 else f"{qmin:.3f}"
+    cell = (f'<td>{lab}</td><td class="n">{a.q.notna().sum()} / {calls(a)}</td>'
+            f'<td class="n">{pres}</td><td class="n">{qtxt}</td>')
+    if cell not in html:
+        misses.append(f"MaAsLin3 table row wrong: {lab}")
 
-# Composition table: mean relative abundance per arm and timepoint, summed to
-# ANCOM-BC2's species-level paths, next to each arm's per-arm q.
-import biom  # noqa: E402
+# Named effects.
+avg = M3[ABUND & (M3.row == "Average Day 17 to 25 shift") & (M3.q < 0.05)]
+expect(f"Averaged over the eight mice, {len(avg)} taxa pass", "averaged hit count")
+for c in avg.coef:
+    expect(f"{abs(c):.2f}", f"averaged coefficient {c:.2f}")
+mur = avg[avg.feature.str.contains("f__Muribaculaceae") & (avg.coef < 0)]
+expect(f"Seven Muribaculaceae fall by {mur.coef.max() * -1:.2f} to {mur.coef.min() * -1:.2f} log2", "Muribaculaceae range")
+if len(mur) != 7:
+    misses.append(f"text says seven Muribaculaceae fall; table has {len(mur)}")
+ir = M3[ABUND & (M3.row == "Day 17 to 25 in IFA+IR")]
+near = ir[ir.q == ir.q.min()]
+expect(f"four taxa stop one correction step short at q = {near.q.iloc[0]:.3f}", "IFA+IR near miss")
+if len(near) != 4:
+    misses.append(f"text says four IFA+IR taxa at the smallest q; table has {len(near)}")
+for c in near.coef:
+    expect(f"{abs(c):.2f}", f"IFA+IR near-miss coefficient {c:.2f}")
+ia = M3[M3.row == "Interaction (IFA+IR shift minus IFA shift)"]
+expect(f"0 of {ia[ia.model == 'abundance'].q.notna().sum()} in abundance and 0 of "
+       f"{ia[ia.model == 'prevalence'].q.notna().sum()} in presence, smallest q {ia.q.min():.3f}", "interaction")
+if calls(ia):
+    misses.append("text says the interaction finds no taxon")
 
-STUDY = os.path.dirname(THIS_DIR)
-counts = biom.load_table(os.path.join(STUDY, "tables", "study-seqs.biom")).to_dataframe(dense=True)
-tax = pd.read_csv(os.path.join(STUDY, "tables", "exported-taxonomy", "Greengenes2_taxonomy.tsv"),
-                  sep="\t", index_col=0)["Taxon"]
-counts = counts.loc[counts.index.intersection(tax.index)]
-paths = tax.loc[counts.index].map(lambda t: ";".join([p for p in (x.strip() for x in t.split(";")) if p][:7]))
-counts = counts.groupby(paths).sum()
-ra = {}
-for a in ("IFA", "IFA_IR"):
-    meta = pd.read_csv(os.path.join(TAB, f"metadata_subset_{a}.tsv"), sep="\t", index_col=0)
-    rel = counts[meta.index] / counts[meta.index].sum()
-    for d in ("Day17", "Day25"):
-        ra[a, d] = rel[meta.index[meta.Timepoint == d]].mean(axis=1) * 100
+# Sensitivity: without depth, and without the per-mouse term.
+k = ["row", "feature", "model"]
+nr = NOREADS.merge(M3, on=k, suffixes=("_nr", ""))
+ir_nr = nr[(nr.row == "Day 17 to 25 in IFA+IR") & (nr.model == "abundance") & (nr.q_nr < 0.05)]
+expect(f"three of the four IFA+IR taxa pass (q = {ir_nr.q_nr.max():.3f})", "no-depth IFA+IR")
+if len(ir_nr) != 3 or not set(ir_nr.feature) <= set(near.feature):
+    misses.append("no-depth IFA+IR calls are not three of the four near misses")
+# "every coefficient above": the averaged hits and the four IFA+IR near misses.
+named = nr[(nr.model == "abundance") & (((nr.row == "Average Day 17 to 25 shift") & (nr.q < 0.05))
+                                        | ((nr.row == "Day 17 to 25 in IFA+IR") & nr.feature.isin(near.feature)))]
+if (named.coef - named.coef_nr).abs().max() > 0.2:
+    misses.append("a coefficient named in the text moves by more than 0.2 log2 without depth")
+unp = {r: calls(M3[ABUND & (M3.row == r)].rename(columns={"q": "_q", "q_unpaired": "q"}))
+       for r in ("Day 17 to 25 in IFA", "Day 17 to 25 in IFA+IR")}
+expect(f"Without the per-mouse term, {unp['Day 17 to 25 in IFA']} taxa pass in IFA and "
+       f"{unp['Day 17 to 25 in IFA+IR']} in IFA+IR", "unpaired counts")
+
+# Largest shifts table.
+cnt = pd.read_csv(os.path.join(TAB, "collapsed_counts_day17day25_Greengenes2.tsv"), sep="\t", index_col=0)
+smp = pd.read_csv(os.path.join(TAB, "samples_day17day25.tsv"), sep="\t", index_col=0).loc[cnt.columns]
+rel = cnt / cnt.sum() * 100
+ra = {(a, d): rel.loc[:, (smp.Arm == a) & (smp.Timepoint == d)].mean(axis=1)
+      for a in ("IFA", "IFA_IR") for d in ("Day17", "Day25")}
 delta = sum(ra[a, "Day25"] - ra[a, "Day17"] for a in ("IFA", "IFA_IR")) / 2
 delta = delta[~delta.index.str.endswith("g__;s__")]
 top = delta.abs().sort_values(ascending=False).index[:11]
@@ -126,166 +150,179 @@ def pct(v):
     return "0%" if v == 0 else ("&lt;0.1%" if v < 0.05 else f"{v:.1f}%")
 
 
-def qcell(a, taxon):
-    if taxon not in per_arm[a].index or pd.isna(per_arm[a].q_TimepointDay25.get(taxon)):
+def qcell(row, t):
+    d = M3[ABUND & (M3.row == row) & (M3.feature == t)]
+    if d.empty or pd.isna(d.q.iloc[0]):
         return "—"
-    q = per_arm[a].q_TimepointDay25[taxon]
-    return f"{q:.3f}" + ("*" if q < 0.05 and taxon not in hits(per_arm[a]).index else "")
+    q = d.q.iloc[0]
+    return f"{q:.3f}" + ("†" if row.startswith("Average") and (rel.loc[t, smp.Arm == "IFA"] == 0).all() else "")
 
 
-for taxon in top:
-    row = " ".join(c for a in ("IFA", "IFA_IR")
-                   for c in (pct(ra[a, "Day17"][taxon]), pct(ra[a, "Day25"][taxon]), qcell(a, taxon)))
-    expect(row, f"composition row {taxon.split(';')[-1]}")
-expect(f"In IFA+IR, {len(hits(per_arm['IFA_IR']).index.intersection(top))} of the 11 are per-arm hits: "
-       f"{sum(per_arm['IFA_IR'].q_TimepointDay25.get(t, 1) < 0.05 for t in top)} reach q", "composition IFA+IR hit count")
-if len(hits(per_arm["IFA"]).index.intersection(top)):
-    misses.append("composition: prose says no IFA per-arm hits among the 11")
-ms = per_arm["IFA"].index[per_arm["IFA"].index.str.contains("schaedleri")][0]
-expect(f"joint q {joint['IFA'].q_TimepointDay25[ms]:.3f} in IFA, {joint['IFA_IR'].q_TimepointDay25[ms]:.3f}",
-       "M. schaedleri joint q")
-for phylum in ("p__Campylobacterota_A", "p__Deferribacterota"):
-    present = counts[(counts.index.str.split(";").str[1] == phylum)].sum(axis=1).gt(0).sum()
-    if present != 1:
-        misses.append(f"composition: {phylum} has {present} species-level taxa, prose says one")
+# The largest-shift table sits in Community composition, before the DA methods, so it carries
+# shares only: no q-value may appear there.
+_comp = html[html.index("<h2>Community composition</h2>"):html.index("</section>", html.index("<h2>Community composition</h2>"))]
+_ctext = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", _comp))
+for t in top:
+    cells = [pct(ra["IFA", "Day17"][t]), pct(ra["IFA", "Day25"][t]), pct(ra["IFA_IR", "Day17"][t]), pct(ra["IFA_IR", "Day25"][t])]
+    if " ".join(cells) not in _ctext:
+        misses.append(f"composition largest-shift row {t.split(';')[-1]}: '{' '.join(cells)}' not in Community composition")
+if re.search(r"\bq\b|0\.0[0-9]{2}\b", _ctext):
+    misses.append("Community composition quotes a q-value; it precedes the DA methods")
+# Composition bars: one toggled view per rank, Kingdom to Species, Genus shown by default,
+# each view the two arms side by side.
+for _rk in ("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"):
+    _v = f"rk-{_rk[0].lower()}"
+    if (f'<div class="view {_v}">' not in _comp or f'value="{_v}"' not in _comp or f".view.{_v}{{display:block}}" not in html
+            or any(f"taxa_day17day25_{_a}_Greengenes2_{_rk}_groups.png" not in _comp for _a in ("IFA", "IFA_IR"))):
+        misses.append(f"composition rank panel: {_rk} view missing or not wired")
+if 'value="rk-g" checked' not in _comp:
+    misses.append("composition rank panel: Genus is not the default view")
+ms = [t for t in top if "schaedleri" in t][0]
+expect(f"does not pass (averaged q {qcell('Average Day 17 to 25 shift', ms)})", "M. schaedleri averaged q")
 
-# ---- untestable-taxa heatmap caption ----
-import biom  # noqa: E402
-from plot_untestable_heatmap import collapse  # noqa: E402
+# Structural zeros.
+for _f in ("presence_day17day25_Greengenes2_heatmap.png", "presence_day17day25_Greengenes2_gplus_heatmap.png"):
+    if _f not in html:
+        misses.append(f"presence dot map missing: {_f}")
+if "untestable_heatmap" in html:
+    misses.append("the per-sample structural-zero heatmap is obsolete; use the presence dot map")
+SHORT = {"Day 17 to 25 in IFA": "In IFA", "Day 17 to 25 in IFA+IR": "In IFA+IR",
+         "IFA+IR vs IFA at Day 17": "At Day 17", "IFA+IR vs IFA at Day 25": "At Day 25"}
+cellname = lambda c: c.replace("Day17", "Day 17").replace("Day25", "Day 25")
+for con, d in SZ.groupby("contrast"):
+    first, second = d.absent_in.value_counts().to_dict(), None
+    row = f'<td>{SHORT[con]}</td><td class="n">{len(d)}</td>'
+    if row not in html:
+        misses.append(f"structural-zero count row wrong: {con}")
+    for a, n in first.items():
+        where = a.split()[1] if con.startswith("Day") else a.split()[0]
+        where = cellname(where)
+        expect(f"{n} {'at' if con.startswith('Day') else 'in'} {where}", f"structural zeros {con} missing from {a}")
+    if f'<td class="n">{(d.separation == "complete").sum()}</td></tr>' not in html.split(f"<td>{SHORT[con]}</td>", 1)[1][:200]:
+        misses.append(f"complete count wrong: {con}")
+comp = SZ[SZ.separation == "complete"]
+for r in comp.itertuples():
+    expect(f"{SHORT[r.contrast]} {cellname(r.present_in)} {cellname(r.absent_in)} "
+           f"{r.mean_share_where_present:.2f}% ({r.max_share:.2f}%)", f"complete row {r.label} {r.contrast}")
+WORDS = {9: "nine", 13: "Thirteen"}
+expect(f"{WORDS.get(len(comp), len(comp))} complete separations in {WORDS.get(comp.taxon.nunique(), comp.taxon.nunique())} taxa",
+       "complete totals")
+over_time = comp[comp.contrast.str.startswith("Day")]
+appear = over_time.absent_in.str.endswith("Day17").sum()
+expect(f"Over time, seven of the eight complete separations are taxa that appear by Day 25", "appearances")
+if (len(over_time), appear) != (8, 7):
+    misses.append(f"text says 7 of 8 over-time separations are appearances; table has {appear} of {len(over_time)}")
+if not comp[~comp.contrast.str.startswith("Day")].absent_in.str.startswith("IFA ").all():
+    misses.append("text says every between-arm complete separation is absent from IFA")
+un = pd.read_csv(os.path.join(TAB, "DA_day17day25_Greengenes2_untestable_absent_from_a_cell.tsv"), sep="\t")
+ab = un[[c for c in un.columns if "(n=" in c]].eq(0).rename(columns=lambda c: c.split(" (n=")[0])
+only17 = ~ab["IFA Day25"] & ~ab["IFA+IR Day25"]
+ifa, irr = ab["IFA Day17"], ab["IFA+IR Day17"]
+expect(f"{int(only17.sum())} of the 57 structural zeros are missing only at Day 17: {int((only17 & ifa & ~irr).sum())} in the IFA "
+       f"arm alone, {int((only17 & irr & ~ifa).sum())} in IFA+IR alone and {int((only17 & ifa & irr).sum())} in both",
+       "heatmap caption pattern")
+# Share of reads the structural-zero taxa make up together, per sample, averaged per group.
+_cell = smp.Arm.map({"IFA": "IFA", "IFA_IR": "IFA+IR"}) + " " + smp.Timepoint
+sh = rel.loc[un.taxon].sum().groupby(_cell).mean()
+expect(f"{sh['IFA Day17']:.2f}% of reads in IFA mice at Day 17, against {sh['IFA Day25']:.2f}% at Day 25, and "
+       f"{sh['IFA+IR Day17']:.2f}% and {sh['IFA+IR Day25']:.2f}% in IFA+IR", "structural-zero shares")
 
-stem = "ANCOMBC2_day17day25_joint_Greengenes2"
-un = pd.read_csv(os.path.join(TAB, f"{stem}_untestable_absent_from_a_cell.tsv"), sep="\t")
-sh = pd.read_csv(os.path.join(TAB, f"{stem}_untestable_shares.tsv"), sep="\t")
-cc = {c.split(" (n=")[0]: c for c in un.columns if "(n=" in c}
-absent = {k: un[c].eq(0) for k, c in cc.items()}
-only = lambda *ks: sum(absent[k] for k in cc).eq(len(ks)) & np.logical_and.reduce([absent[k] for k in ks])
-n_ifa, n_ir, n_both = (int(only(*k).sum()) for k in (("IFA Day17",), ("IFA+IR Day17",), ("IFA Day17", "IFA+IR Day17")))
-d17_only = n_ifa + n_ir + n_both
-expect(f"The {len(un)} taxa that pass the presence rule", "heatmap taxon count")
-expect(f"{d17_only} of the {len(un)} are missing only at Day 17, {n_ifa} of them in the IFA arm alone, "
-       f"{n_ir} in IFA+IR alone and {n_both} in both arms", "Day-17-only counts")
-gm = sh.groupby("Group").untestable_pct.mean()
-others = gm.drop("IFA Day17")
-expect(f"{gm['IFA Day17']:.2f}% of reads on average, against {others.min():.1f}–{others.max():.1f}%", "heatmap cell shares")
-fmeta = pd.read_csv(os.path.join(OUT, "metadata_joint_cells.tsv"), sep="\t", index_col=0, keep_default_na=False)
-fc = biom.load_table(os.path.join(os.path.dirname(OUT), "tables", "study-seqs.biom")).to_dataframe(dense=True)[fmeta.index]
-ftax = pd.read_csv(os.path.join(os.path.dirname(OUT), "tables", "exported-taxonomy", "Greengenes2_taxonomy.tsv"),
-                   sep="\t", index_col=0)["Taxon"]
-rel = collapse(fc, ftax) / fc.sum() * 100
-row = lambda k: rel.loc[[t for t in rel.index if t.endswith(k)][0]]
-g = fmeta.Group
-al = row("Alloprevotella sp002933955")
-if al[g == "IFA Day17"].gt(0).any() or al[g != "IFA Day17"].eq(0).any():
-    misses.append("heatmap: Alloprevotella is not present in exactly the 12 non-IFA-Day17 samples")
-expect(f"in all 12 other samples ({al[g != 'IFA Day17'].min():.1f}–{al.max():.1f}%)", "Alloprevotella range")
-ac = row("Bacteroides_H_857956 acidifaciens")
-if ac[g.str.startswith("IFA Day")].gt(0).any():
-    misses.append("heatmap: B. acidifaciens is seen in the IFA arm")
-d17, d25 = ac[g == "IFA+IR Day17"], ac[g == "IFA+IR Day25"]
-expect(f"rises from {d17.min():.0f}–{d17.max():.1f}% of reads at Day 17 to {d25.min():.1f}–{d25.max():.1f}% at Day 25",
-       "B. acidifaciens ranges")
-ut = set(un.taxon)
-for arm, f, word in (("IFA", "ANCOMBC2_day17day25_IFA_Greengenes2.tsv", "IFA"),
-                     ("IFA_IR", "ANCOMBC2_day17day25_IFA_IR_Greengenes2.tsv", "IFA+IR")):
-    pa = pd.read_csv(os.path.join(TAB, f), sep="\t")
-    pa = pa[pa.taxon.isin(ut)]
-    se = [c for c in pa if c.startswith("se_") and "Intercept" not in c][0]
-    q = "q_" + se[3:]
-    est = pa[pa[se].notna()]
-    hit = est[(est[q] < 0.05) & est["passed_ss_" + se[3:]].astype(str).str.upper().eq("TRUE")]
-    expect(f"{len(est)} of these taxa in IFA" if word == "IFA" else f"and {len(est)} in IFA+IR", f"per-arm SE count {word}")
-    if len(hit):
-        misses.append(f"heatmap: {len(hit)} per-arm {word} hits among untestable taxa, caption says none")
-
-# ---- structural zeros: presence table and finding ----
-import check_structural_zeros  # noqa: E402
-
-check_structural_zeros.sz.configure("day17-day25")
-sz_miss, szdf = check_structural_zeros.check(html, text)
-misses += sz_miss
-floor = check_structural_zeros.sz.mcnemar_exact(4, 0)
-expect(f"cannot go below p = {floor:.3f}", "paired floor")
-for label, grp, n_abs, n in (("IFA", "IFA Day17", 31, 35), ("IFA+IR", "IFA+IR Day17", 16, 22)):
-    d = szdf[szdf.contrast == label]
-    if (int((d.absent_from == grp).sum()), len(d)) != (n_abs, n):
-        misses.append(f"direction {label}: tables give {int((d.absent_from == grp).sum())} of {len(d)}")
-    expect(f"{n_abs} of the {n}", f"direction {label}")
-
-fig_miss, n_views = check_structural_zeros.check_figures(html, OUT)
-misses += fig_miss
-if n_views == 0:
-    misses.append("no view draws structural zeros")
-
-# ---- presence turnover (presence_turnover_day17_day25.R) ----
-_s = pd.read_csv(os.path.join(TAB, "ANCOMBC2_day17day25_joint_Greengenes2_presence_turnover.tsv"), sep="\t").iloc[0]
-_per = pd.read_csv(os.path.join(TAB, "ANCOMBC2_day17day25_joint_Greengenes2_presence_turnover_by_mouse.tsv"), sep="\t")
-expect(f"Mean turnover is {_s.turnover_a:.2f} in IFA and {_s.turnover_b:.2f} in IFA+IR (exact p = {_s.p_exact:.2f})", "turnover and p")
-expect(f"Turnover {_s.turnover_a:.2f} vs {_s.turnover_b:.2f}, exact p = {_s.p_exact:.2f}", "turnover table row")
-expect(f"IFA mice gain {_s.gained_a:.1f} of these taxa on average and lose {_s.lost_a:.1f}; IFA+IR mice gain {_s.gained_b:.1f} and lose {_s.lost_b:.1f}", "gained and lost")
-_r = lambda a: f"{_per.day17[_per.arm == a].min()}–{_per.day17[_per.arm == a].max()}"
-expect(f"with {_r('IFA')} of the {_s.taxa} taxa at Day 17 against {_r('IFA+IR')} in IFA+IR", "Day 17 ranges")
-expect(f"is asked of all {_s.taxa} taxa at once: the {_s.tested} the joint model tests and the {_s.untestable} it leaves out", "turnover taxon set")
-expect(f"{_s.taxa} taxa pass the rule in at least one arm: {_s.tested} are seen in each of the four", "joint taxon split")
-expect(f"The plot covers the {_s.tested} taxa seen in all four arm × timepoint cells. The {_s.untestable} absent", "forest scope")
-# The text says these are the factorial report's unirradiated IFA mice at Day 17.
-_fm = pd.read_csv(os.path.join(os.path.dirname(OUT), "metadata.tsv"), sep="\t", index_col=0, keep_default_na=False)
-_fifa = set(_fm.index[(_fm.Timepoint == "Day17") & (_fm.Treatment == "IFA") & (_fm.Radiation == "None")])
-_jm = pd.read_csv(os.path.join(OUT, "metadata_joint_cells.tsv"), sep="\t", index_col=0)
-if _fifa != set(_jm.index[_jm.Group == "IFA Day17"]):
-    misses.append("the IFA Day 17 samples are not the factorial report's unirradiated IFA group")
+# Summary and DA: three taxa IFA+IR carries that are "never seen in IFA".
+for _pat in ("acidifaciens", "Desulfovibrio_446353;s__Desulfovibrio sp011039135", "g__Duncaniella;s__$"):
+    _t = [t for t in cnt.index if re.search(_pat, t)]
+    if len(_t) != 1 or (cnt.loc[_t[0], smp.Arm == "IFA"] > 0).any() or not (cnt.loc[_t[0], smp.Arm == "IFA_IR"] > 0).any():
+        misses.append(f"text says {_pat} is carried by IFA+IR and never seen in IFA; the counts disagree")
+if "two views of one change" in html or "change alike</h3>" in html:
+    misses.append("text closes the arm question; presence differences are open and untested")
 
 # ---- summary section ----
-_fl = beta.permanova_q.max()
 if not (beta.permanova_q == beta.permanova_q.min()).all():
     misses.append("summary says every PERMANOVA row sits at the permutation floor; they differ")
 expect(f"(R² {beta.R2.min() * 100:.0f}–{beta.R2.max() * 100:.0f}%)", "summary R2 range")
 _spread = beta[beta.permdisp_q < 0.05].groupby("arm").metric.apply(set)
 if not all(v == {"jaccard", "braycurtis", "weighted_unifrac"} for v in _spread):
     misses.append(f"summary names Jaccard, Bray-Curtis and weighted UniFrac as the spread metrics; tables give {dict(_spread)}")
-expect(f"in IFA+IR {fail(per_arm['IFA_IR'])} reach q &lt; 0.05 but fail the sensitivity check", "summary per-arm failing count")
-expect(f"The joint model finds {len(hits(joint['IFA_IR']))} in IFA+IR", "summary joint count")
-expect(f"(0 of {len(joint['IFA'])} taxa) or in presence (turnover p = {_s.p_exact:.2f})", "summary arm comparison")
+expect(f"(q = {near.q.iloc[0]:.3f} against {M3[M3.row == 'Day 17 to 25 in IFA'].q.min():.3f})", "not-established q pair")
 
-# ---- structural-zero evidence (structural_zero_evidence.py) ----
-_S = os.path.join(TAB, "ANCOMBC2_day17day25_joint_Greengenes2")
-_cal = pd.read_csv(_S + "_structural_zeros_calibration.tsv", sep="\t").set_index("contrast")
-_dep = pd.read_csv(_S + "_structural_zeros_depth.tsv", sep="\t")
-_t = _cal.loc["all contrasts"]
-expect(f"{_t.observed} calls in {_dep.taxon.nunique()} taxa show complete separation between the timepoints, where "
-       f"swapping timepoints within mice gives {_t.expected:.2f} on average (exact p = {_t.p_perm:.3f})", "SZ calibration")
-expect(f"cannot go below p = {_cal.loc['IFA'].p_perm:.3f}", "SZ per-arm floor")
-if (_dep.q_depth >= 0.05).any():
-    misses.append("text says no complete-separation absence is explained by depth")
-_app = _dep.present_in.str.endswith("Day25").sum()
-expect(f"{['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'][_app]} of the {['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][len(_dep)]} calls are taxa that appear", "SZ appear count")
-expect(f"{_t.observed} calls against {_t.expected:.2f} expected by chance", "SZ summary numbers")
-_rows = re.findall(r"<tr><td>(.*?)</td><td>(IFA|IFA\+IR)</td><td>(appears by Day 25|gone by Day 25)</td><td class=\"n\">([0-9.]+)%</td></tr>", html)
-_want = sorted((r.contrast, "appears by Day 25" if r.present_in.endswith("Day25") else "gone by Day 25", f"{r.mean_share_pct:.2f}")
-               for r in _dep.itertuples())
-if sorted((r[1], r[2], r[3]) for r in _rows) != _want:
-    misses.append("SZ table rows do not match the tables")
-_al = _dep[_dep.taxon.str.endswith("Alloprevotella sp002933955")]
-if list(zip(_al.contrast, _al.present_in)) != [("IFA", "IFA Day25")]:
-    misses.append("Alloprevotella is not the IFA arm's appear-by-Day-25 call")
-_de = _dep[_dep.taxon.str.endswith("Desulfovibrio sp011039135")]
-if list(zip(_de.contrast, _de.present_in)) != [("IFA+IR", "IFA+IR Day17")]:
-    misses.append("Desulfovibrio is not the IFA+IR arm's lost-by-Day-25 call")
+_parts = ("<h2>Differential abundance</h2>", "Structural zeros: taxa missing from a whole group",
+          "A taxon missing from every sample of one group", "<th class=\"n\">Structural zeros</th>",
+          "33 of the 57 structural zeros", "presence_day17day25_Greengenes2_heatmap.png", "Shares are relative abundance",
+          "<th>Taxon · Greengenes2</th>", "can be compared on abundance.</p>",
+          "MaAsLin3: abundance and presence", "MaAsLin3 1.5.7, on unrarefied counts", "Abundance<br>tested / hits",
+          "Averaged over the eight mice", "MaAsLin3_day17day25_Greengenes2_forest_time.png",
+          "Two choices cost power", 'class="finding', "<h2>Summary</h2>")
+_da0 = html.find("<h2>Differential abundance</h2>")
+_order = [html.find(_h, _da0) for _h in _parts]
+if -1 in _order or _order != sorted(_order):
+    misses.append(f"DA parts out of order or missing: {[t for t, q in zip(_parts, _order) if q == -1] or 'order'}")
 
-# ---- restructured DA section: synthesis claims ----
-expect(f"mice gain {_s.gained_a:.1f} (IFA) and {_s.gained_b:.1f} (IFA+IR) of the {_s.taxa} taxa on average", "synthesis gains")
-expect(f"({_r('IFA')} at Day 17 against {_r('IFA+IR')} in IFA+IR)", "synthesis Day 17 ranges")
-expect(f"{_t.observed} calls against {_t.expected:.2f} expected by chance), and mice gain", "synthesis calibration")
-_un = pd.read_csv(os.path.join(TAB, "ANCOMBC2_day17day25_joint_Greengenes2_untestable_absent_from_a_cell.tsv"), sep="\t")
-_ab = _un[[c for c in _un.columns if "(n=" in c]].eq(0).rename(columns=lambda c: c.split(" (n=")[0])
-_d17 = _ab["IFA Day17"] & ~_ab["IFA Day25"] & ~_ab["IFA+IR Day25"] & ~_ab["IFA+IR Day17"]
-expect(f"{int(_d17.sum())} of the 33 taxa missing only at Day 17 are missing in the IFA arm alone", "synthesis IFA-only count")
-expect(f"0 of {len(joint['IFA'])} taxa, smallest q {joint['IFA'][f'q_{ic}'].min():.3f}", "synthesis interaction")
-for _h in ("How taxa are tested", "Structural zeros: taxa that appear or vanish", "ANCOM-BC2: abundance in the taxa seen", "Both together"):
-    if _h not in html:
-        misses.append(f"DA part heading missing: {_h}")
-_order = [html.find(_h) for _h in ("How taxa are tested", "Structural zeros: taxa that appear", "ANCOM-BC2: abundance in the taxa", "Both together", "<h2>Summary</h2>")]
-if _order != sorted(_order):
-    misses.append("DA parts are out of order")
+# ---- beta diversity: each test's heading, explanation, table, finding, plot, then caveats ----
+_b = html[html.index("<h2>Beta diversity</h2>"):html.index("</section>", html.index("<h2>Beta diversity</h2>"))]
+_steps = ["PCoA: how far apart", "Points closer together", "Day 17 and Day 25 separate in every panel",
+          "diversity_day17day25_beta_pcoa.png", "A PCoA is a picture, not a test", "PERMANOVA tests the separation",
+          "PERMANOVA: do the timepoints differ in location?", "PERMANOVA asks whether", "<th class=\"n\">R²</th>",
+          "All eight tests return p = 0.030", "diversity_day17day25_permanova_r2.png", "Do not rank the metrics",
+          "PERMDISP checks\nthat", "PERMDISP: do the timepoints differ in spread?", "measures each sample's distance",
+          "<th class=\"n\">within D17</th>", "Six of the eight rows show unequal spread",
+          "diversity_day17day25_dispersion.png", 'class="finding']
+_pos = [_b.find(t) for t in _steps]
+if -1 in _pos or _pos != sorted(_pos):
+    misses.append(f"beta diversity out of order or missing: {[t for t, q in zip(_steps, _pos) if q == -1] or 'order'}")
+
+# ---- alpha diversity: explanation, table, finding, plot, caveats, findings ----
+_a = html[html.index("<h2>Alpha diversity</h2>"):html.index("</section>", html.index("<h2>Alpha diversity</h2>"))]
+_steps = ["Each metric is compared Day 17 against Day 25", "<th class=\"n\">MWU q</th>",
+          "The three abundance-weighted metrics", "alpha_day17day25_IFA_evenness.png", "Three limits apply",
+          'class="finding']
+_pos = [_a.find(t) for t in _steps]
+if -1 in _pos or _pos != sorted(_pos):
+    misses.append(f"alpha diversity out of order or missing: {[t for t, q in zip(_steps, _pos) if q == -1] or 'order'}")
+
+# ---- every section: its findings close it (ported from reza250909) ----
+# At most four findings per section, any colour. The Summary alone may add up to two red ones
+# (class "finding no": results easily misread, such as "not established") beyond its four green
+# or orange; they come last, and only a heading may sit between the two groups. The design part
+# is exempt: the mouse pairing needs its explanation at the very start.
+SECTION_RULE_EXEMPT = {"The design"}
+for _m in re.finditer(r"<section[^>]*>(.*?)</section>", html, re.S):
+    _sec = _m.group(1)
+    _h = re.search(r"<h2>(.*?)</h2>", _sec)
+    _name = _h.group(1) if _h else "(section without a heading)"
+    if _name in SECTION_RULE_EXEMPT:
+        continue
+    if not _sec.strip().startswith("<h2>"):
+        misses.append(f"{_name}: something precedes the section heading: "
+                      f"{re.sub(r'<[^>]+>', ' ', _sec.strip()[:80])!r}")
+    _boxes = list(re.finditer(r'<div class="finding([^"]*)">.*?</div>', _sec, re.S))
+    if not _boxes:
+        continue
+    _summary = _name == "Summary"
+    _red = [b for b in _boxes if " no" in b.group(1)] if _summary else []
+    _other = [b for b in _boxes if b not in _red]
+    if len(_other) > 4:
+        misses.append(f"{_name}: {len(_other)} findings, at most 4"
+                      + (" green/orange" if _summary else ""))
+    if len(_red) > 2:
+        misses.append(f"{_name}: {len(_red)} red findings, at most 2")
+    if _other and _red and _red[0].start() < _other[-1].start():
+        misses.append(f"{_name}: a red finding comes before a green/orange one")
+    _after = re.sub(r"\s+", " ", re.sub(r"<script.*?</script>|<[^>]+>", " ", _sec[_boxes[-1].end():], flags=re.S)).strip()
+    if _after:
+        misses.append(f"{_name}: content after its findings: {_after[:60]!r}")
+    _rest = re.sub(r'<script.*?</script>|<div class="finding[^"]*">.*?</div>', "", _sec[_boxes[0].start():], flags=re.S)
+    if _other and _red:  # a heading may introduce the red group
+        _rest = re.sub(r"<h3[^>]*>.*?</h3>", "", _rest, flags=re.S)
+    _between = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", _rest)).strip()
+    if _between:
+        misses.append(f"{_name}: findings are not together at the end ({_between[:60]!r} between them)")
+
+# ---- Predicted function (PICRUSt2): check_picrust2.py ----
+import check_picrust2  # noqa: E402
+misses += check_picrust2.check(html, "day17-day25")
+
+# LinDA is not used in this report and is not mentioned (user, 2026-10-04).
+if "LinDA" in html:
+    misses.append("the report mentions LinDA, which it does not use")
 
 if misses:
     print("\n".join(misses))

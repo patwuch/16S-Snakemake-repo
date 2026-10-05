@@ -42,7 +42,7 @@ STUDY_DIR = os.path.dirname(THIS_DIR)
 # this script in reza250909, tisha251224 and ahmad260430. ----
 OUT_DIR = os.path.join(STUDY_DIR, "comparison-day17-day25")
 META = os.path.join(OUT_DIR, "metadata_joint_cells.tsv")    # needs Group, PrimaryColor, PrimaryOrder
-STEM = "ANCOMBC2_day17day25_joint_Greengenes2"             # <STEM>_untestable_absent_from_a_cell.tsv
+STEM = "DA_day17day25_Greengenes2"                         # <STEM>_untestable_absent_from_a_cell.tsv
 UNIT = "samples"                                           # what a column is
 RULE = "in ≥ 2 samples of an arm but absent from a whole arm × day cell" # why these rows were not tested
 META_FILTER = None                                         # (column, value) to keep, or None
@@ -53,7 +53,7 @@ CONFIGS = {
         OUT_DIR=os.path.join(STUDY_DIR, "comparison-Treatment-x-Radiation-factorial"),
         META=os.path.join(STUDY_DIR, "metadata.tsv"),
         META_FILTER=("Timepoint", "Day17"),
-        STEM="ANCOMBC2_factorial_Greengenes2_Day17_minpres6",
+        STEM="DA_factorial_Greengenes2_Day17_minpres6",
         UNIT="mice",
         RULE="seen in ≥ 6 mice but absent from a whole group"),
 }
@@ -195,8 +195,14 @@ def main():
     one = UNIT.rstrip("s") if UNIT != "mice" else "mouse"
     cb.set_label(f"share of the {one}'s reads (%, log scale) · white = not seen in that {one}",
                  fontsize=8, color=TEXT_INK)
-    ticks = [t for t in (0.01, 0.1, 1, 10) if norm.vmin <= t <= norm.vmax]
-    cb.set_ticks(ticks, labels=[f"{t:g}%" for t in ticks])
+    # Half-decade ticks, and both ends labelled with the actual smallest and
+    # largest share, so the bar's end is not read as a cap at the last round
+    # tick. Round ticks within 0.2 decades of an end would collide and go.
+    lo, hi = norm.vmin, norm.vmax
+    ticks = [t for t in (0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30)
+             if abs(np.log10(t / lo)) > 0.5 and abs(np.log10(t / hi)) > 0.5 and lo < t < hi]
+    labels = [f"{t:g}%" for t in ticks]
+    cb.set_ticks([lo] + ticks + [hi], labels=[f"min {lo:.2g}%"] + labels + [f"max {hi:.3g}%"])
     cb.ax.minorticks_off()
     cb.ax.tick_params(labelsize=7, colors=MUTED_INK)
     cb.outline.set_visible(False)

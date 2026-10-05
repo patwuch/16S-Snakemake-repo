@@ -1,10 +1,29 @@
+# MaAsLin3 1.5.7 (biobakery/maaslin3 release branch, commit 8c95d11, installed in
+# containers/maaslin3-env.def). Bioconda's only build is 1.2.0, whose contrast
+# tests return NA for every row of a feature with an aliased coefficient
+# (fixed in 1.5.7, commit 3cede82). These are 1.5.7's Imports.
 channels:
   - conda-forge
   - bioconda
 platforms:
   - linux-64
 dependencies:
-  - bioconductor-maaslin3=1.2.0
   - r-base>=4.5,<4.6
   - r-data.table
+  - r-collapse>=2.1.0
+  - r-lmertest
+  - r-lme4
   - r-optparse
+  - r-mirai
+  - r-multcomp
+  - r-ggplot2
+  - r-rcolorbrewer
+  - r-patchwork
+  - r-scales
+  - r-rlang
+  - r-ggnewscale
+  - r-survival
+  - r-reformulas
+  - bioconductor-biocgenerics
+  # Hartigan dip test for the median check (check_maaslin3_median.R)
+  - r-diptest

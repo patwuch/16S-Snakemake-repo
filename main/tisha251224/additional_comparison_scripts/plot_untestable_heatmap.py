@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Heatmap of the taxa ANCOM-BC2 could not test because a whole group lacks them.
 
-Rows are the features in tables/ANCOMBC2_factorial_Greengenes2_untestable_absent_from_a_cell.tsv
+Rows are the features in tables/presence_factorial_Greengenes2_untestable_absent_from_a_cell.tsv
 (seen in >= 6 samples but absent from every sample of at least one Diet x
 Condition group). Columns are the 19 samples, grouped by Group in PrimaryOrder.
 A cell's colour is that feature's share of the sample's reads, on a log scale;
@@ -38,7 +38,7 @@ STUDY_DIR = os.path.dirname(THIS_DIR)
 # this script in reza250909, tisha251224 and ahmad260430. ----
 OUT_DIR = os.path.join(STUDY_DIR, "comparison-Diet-x-Condition-factorial")
 META = os.path.join(OUT_DIR, "metadata_factorial.tsv")   # needs Group, PrimaryColor, PrimaryOrder
-STEM = "ANCOMBC2_factorial_Greengenes2"                   # <STEM>_untestable_absent_from_a_cell.tsv
+STEM = "presence_factorial_Greengenes2"                   # <STEM>_untestable_absent_from_a_cell.tsv
 UNIT = "samples"                                           # what a column is
 RULE = "seen in ≥ 6 samples but absent from a whole group" # why these rows were not tested
 # ----

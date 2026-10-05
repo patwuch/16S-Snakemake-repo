@@ -7,6 +7,9 @@ From: condaforge/miniforge3:latest
 %post
     conda env create -f /opt/envs/maaslin3-env.yaml -p /opt/conda-env
     conda clean -afy
+    # MaAsLin3 1.5.7 is on GitHub only; pinned to the release-branch commit.
+    /opt/conda-env/bin/Rscript -e 'install.packages("https://github.com/biobakery/maaslin3/archive/8c95d114b621321a6d504cd7c23f694cb7362561.tar.gz", repos = NULL, type = "source")'
+    /opt/conda-env/bin/Rscript -e 'stopifnot(packageVersion("maaslin3") == "1.5.7"); library(maaslin3); library(diptest)'
 
 %environment
     export PATH=/opt/conda-env/bin:$PATH

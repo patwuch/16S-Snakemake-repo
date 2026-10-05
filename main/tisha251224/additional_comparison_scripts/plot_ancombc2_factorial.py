@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Effect-size barplots and cladograms for the factorial ANCOM-BC2 coefficients.
+"""Effect-size barplots and cladograms for the factorial DA coefficients.
 
-Renders the .res files run_ancombc2_factorial.R writes, through the pipeline's
+Renders the .res files write_maaslin3_res.R (and, before it,
+run_ancombc2_factorial.R) writes, through the pipeline's
 own shared renderer (scripts/effectsize_cladogram_render.py) so these charts are
 directly comparable to the LEfSe ones rather than merely similar-looking.
 
@@ -12,7 +13,7 @@ Colours come from metadata_factorial.tsv's PrimaryColor, keyed on Group, the
 same palette as the diversity figures.
 
 Usage, inside the qiime2 container:
-    python3 plot_ancombc2_factorial.py [--pattern 'ANCOMBC2_factorial_*.res']
+    python3 plot_ancombc2_factorial.py [--pattern 'MaAsLin3_factorial_*.res']
 """
 import argparse
 import glob
@@ -35,9 +36,12 @@ os.makedirs(FIG_DIR, exist_ok=True)
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 from effectsize_cladogram_render import render_effectsize_cladogram  # noqa: E402
 
-# Every fit is per-coefficient BH; the --pairwise diet contrasts are BH across
-# the three diet pairs at once, which the axis names as BH too.
-EFFECT_LABEL = {False: "|log2FC| (BH-adjusted)", True: "|log2FC| (BH-adjusted)"}
+# Per method: the title prefix and the effect axis. MaAsLin3's abundance effect
+# is a change in the taxon's share of reads, tested against zero.
+METHOD = {
+    "ANCOMBC2": ("ANCOM-BC2", "|log2FC| (BH-adjusted)"),
+    "MaAsLin3": ("MaAsLin3", "|log2 change in share of reads| (BH-adjusted)"),
+}
 
 COND_NAME = {"Control": "unirradiated", "IR": "irradiated"}
 
@@ -78,7 +82,7 @@ def group_palette(meta_path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--pattern", default="ANCOMBC2_factorial_*.res")
+    ap.add_argument("--pattern", default="MaAsLin3_factorial_*.res")
     args = ap.parse_args()
 
     colors = group_palette(os.path.join(OUT_DIR, "metadata_factorial.tsv"))
@@ -89,15 +93,14 @@ def main():
 
     for res_path in files:
         stem = os.path.basename(res_path)[: -len(".res")]
-        m = re.match(r"ANCOMBC2_factorial_(Greengenes2)_?(.*?)_((?:Diet|Condition)[A-Za-z]+)$", stem)
-        db, coef = m.group(1), m.group(3)
+        m = re.match(r"(ANCOMBC2|MaAsLin3)_factorial_(Greengenes2)_?(.*?)_((?:Diet|Condition)[A-Za-z]+)$", stem)
+        (method, effect_label), db, coef = METHOD[m.group(1)], m.group(2), m.group(4)
         marked = sum(1 for ln in open(res_path)
                      if len(ln.rstrip("\n").split("\t")) >= 3 and ln.split("\t")[2].strip())
         subtitle, context = coef_title(stem, coef)
         if "_gplus_" in stem:
             # Same fit as the species figure; only hits without a species call are drawn.
             context = f"{context} · genus-level names only"
-        mdfdr = "_pairwise" in stem and coef.startswith("Diet")
 
         sidecar = res_path[: -len(".res")] + ".struczero.tsv"
         render_effectsize_cladogram(
@@ -108,9 +111,9 @@ def main():
             cladogram_png=os.path.join(FIG_DIR, f"{stem}_cladogram.png"),
             colors_map=colors,
             db=db,
-            barplot_title=f"ANCOM-BC2: {subtitle}",
-            cladogram_title=f"ANCOM-BC2: {subtitle}",
-            effect_label=EFFECT_LABEL[mdfdr],
+            barplot_title=f"{method}: {subtitle}",
+            cladogram_title=f"{method}: {subtitle}",
+            effect_label=effect_label,
             context=context,
             nice_ticks=True,
             # structural_zero_figures.py writes a sidecar beside the "_sz" copies;

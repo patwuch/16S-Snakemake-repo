@@ -1,0 +1,31 @@
+channels:
+  - conda-forge
+platforms:
+  - linux-64
+dependencies:
+  - r-base>=4.5,<4.6
+  # metacoder (CRAN only, installed in the .def): its dependencies and a compiler for Rcpp
+  - r-taxa
+  - r-taxize
+  - r-ga
+  - r-rcurl
+  - r-lazyeval
+  - r-vegan
+  - r-dplyr
+  - r-readr
+  - r-stringr
+  - r-igraph
+  - r-ggplot2
+  - r-ggfittext
+  - r-seqinr
+  - r-cowplot
+  - r-ape
+  - r-crayon
+  - r-tibble
+  - r-r6
+  - r-magrittr
+  - r-rcpp
+  - r-rlang
+  - r-svglite
+  - compilers
+  - make

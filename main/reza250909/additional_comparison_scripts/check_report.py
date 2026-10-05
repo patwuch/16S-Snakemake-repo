@@ -271,64 +271,41 @@ import check_structural_zeros  # noqa: E402
 
 sz_miss, szdf = check_structural_zeros.check(html, text)
 misses += sz_miss
-best = szdf[szdf.p == szdf.p.min()]
-if set(best.taxon.map(lambda t: t.split(";")[-2])) != {"g__COE1"} or set(best.present_in) != {"IR"}:
-    misses.append(f"strongest presence test is not COE1 in IR: {best[['taxon', 'present_in']].values.tolist()}")
-expect(f"COE1 in {best.n_present.iloc[0]} of {best.n_group.iloc[0]} irradiated control-diet mice against none of the two "
-       f"groups it is compared with, has p = {best.p.iloc[0]:.3f}", "COE1 presence")
 for label, other in (("SCFAs+IR vs IR", "IR"), ("SCFAs+IR vs SCFAs", "unirradiated SCFAs mice")):
     d = szdf[szdf.contrast == label]
     expect(f"{int((d.absent_from == 'SCFAs+IR').sum())} of the {len(d)} against {other}", f"direction {label}")
-expect(f"a taxon in all eight mice of one group and none of the other gives p = {fisher_exact([[8, 0], [0, 8]])[1]:.5f}",
-       "design floor")
 
 fig_miss, n_views = check_structural_zeros.check_figures(html, os.path.join(os.path.dirname(THIS_DIR), "comparison-Diet-x-Radiation-factorial"))
 misses += fig_miss
+# The barplot/cladogram panels are shelved (shelved/both_together_barplot_cladogram.html);
+# heat trees draw the structural zeros instead. Either kind of view counts.
+ht_miss, n_ht = check_structural_zeros.check_heattrees(html, os.path.join(os.path.dirname(THIS_DIR), "comparison-Diet-x-Radiation-factorial"))
+misses += ht_miss
+n_views += n_ht
+if n_ht and n_ht != 10:
+    misses.append(f"{n_ht} heat-tree views, expected 10 (4 contrasts and the interaction, x species and genus)")
 if n_views == 0:
     misses.append("no view draws structural zeros")
 
-# ---- presence interaction (presence_interaction.R) ----
-def fmtp(p):
-    return f"{p:.2g}" if p < 0.01 else (f"{p:.3f}" if p < 0.1 else f"{p:.2g}")
-
-
-_pi = pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_presence_interaction.tsv"), sep="\t").set_index("term")
-_ia, _pd = _pi.loc["Diet:Radiation"], _pi.loc["cell"]
-expect(f"the presence interaction p = {fmtp(_ia.p)}", "presence interaction p")
-expect(f"(R² {_ia.effect * 100:.0f}%)", "presence interaction R2")
-expect(f"PERMDISP p = {fmtp(_pd.p)}", "presence PERMDISP p")
+# ---- structural zeros: descriptive only (no presence statistics since 2026-10-01) ----
 _nt = len(pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2.tsv"), sep="\t"))
 _nu = len(pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_untestable_absent_from_a_cell.tsv"), sep="\t"))
 expect(f"The plot covers the {_nt} taxa seen in every group. The {_nu} absent", "forest scope")
-expect(f"{_nt + _nu} taxa are seen in at least 4 of the 32 mice", "presence taxon set")
+expect(f"{_nt + _nu} taxa are seen in at least 4 of the 32 mice", "DA taxon set")
+# Taxa per mouse by group: a count, written by presence_interaction.R beside its (retired) tests.
 _bc = pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_presence_by_cell.tsv"), sep="\t", keep_default_na=False)
 _bc = {(r[0], r[1]): r.taxa_present for r in _bc.itertuples(index=False)}
-for (_a, _b), _c in [((('Control', 'None'), ('Control', 'IR')), None), ((('SCFAs', 'None'), ('SCFAs', 'IR')), None)]:
-    expect(f"{_bc[_a]:.1f} to {_bc[_b]:.1f}" if _c is None else f"{_bc[_a]:.1f}" , f"presence count {_a}->{_b}")
-
-_fr = pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_presence_firth.tsv"), sep="\t")
-expect(f"{int((_fr.p_interaction < 0.05).sum())} of the {len(_fr)} taxa have raw p &lt; 0.05", "Firth counts")
-expect(f"two opposite presence switches narrowly miss (q = {_fr.q_interaction.min():.2f})", "Firth table row")
-expect(f"miss correction (q = {_fr.q_interaction.min():.2f})", "Firth q in findings")
-expect(f"switch presence in opposite directions (q = {_fr.q_interaction.min():.2f})", "Firth q in synthesis")
-expect(f"(p = {_fr.p_interaction.iloc[0]:.4f} and {_fr.p_interaction.iloc[1]:.4f})", "Firth two strongest p")
-if not ("flavefaciens_B" in _fr.taxon.iloc[0] and _fr.taxon.iloc[1].endswith("g__COE1;s__")) or (_fr.q_interaction < 0.05).any():
-    misses.append("Firth: the two strongest are not R. flavefaciens_B and genus COE1, or one passes correction")
+for _a, _b in ((("Control", "None"), ("Control", "IR")), (("SCFAs", "None"), ("SCFAs", "IR"))):
+    expect(f"{_bc[_a]:.1f} to {_bc[_b]:.1f}", f"taxa per mouse {_a}->{_b}")
 _un = untestable.set_index("taxon"); _cc = [c for c in _un.columns if "(n=" in c]
 _cell = lambda k: {c.split(" (")[0]: int(_un.loc[[t for t in _un.index if t.endswith(k)][0], c]) for c in _cc}
 if _cell("flavefaciens_B") != {"Control": 4, "SCFAs": 0, "IR": 0, "SCFAs+IR": 4}:
     misses.append(f"R. flavefaciens_B presence differs from the text: {_cell('flavefaciens_B')}")
 if _cell("g__COE1;s__") != {"Control": 0, "SCFAs": 3, "IR": 5, "SCFAs+IR": 0}:
     misses.append(f"genus COE1 presence differs from the text: {_cell('g__COE1;s__')}")
-# Chance calibration of presence calls and complete separations (structural_zero_evidence.py).
-_cal = pd.read_csv(os.path.join(TAB, f"{PRE}_structural_zeros_calibration.tsv"), sep="\t").set_index(["kind", "contrast"])
-_a, _s = _cal.loc[("all presence calls", "all contrasts")], _cal.loc[("all presence calls", "SCFAs+IR vs SCFAs")]
-_f = _cal.loc[("complete separations", "all contrasts")]
-expect(f"there are {int(_a.observed)} presence calls where shuffled labels give {_a.expected:.1f} on average", "calibration all")
-expect(f"({int(_s.observed)} against {_s.expected:.1f})", "calibration SCFAs+IR vs SCFAs")
-expect(f"gives p = {_a.p_perm:.3f} (irradiation on SCFAs alone, {_s.p_perm:.3f})", "calibration p")
-expect(f"({int(_f.observed)} complete separations, where chance gives {_f.expected:.3f})", "calibration complete")
-expect(f"{int(_a.observed)} presence calls against {_a.expected:.1f} by chance", "summary calibration")
+if any((_un[_cc].values == 0).any(axis=1) & (_un[_cc].values == 8).any(axis=1)):
+    misses.append("the text says no taxon is in every mouse of one group and none of another; one is")
+expect("No taxon is in every mouse of one group and in none of the other", "no complete separation")
 _irc = szdf[szdf.contrast == "IR vs Control"]
 expect(f"{int((_irc.absent_from == 'Control').sum())} of the {len(_irc)} between irradiated and unirradiated control mice", "IR vs Control direction")
 # ANCOM-BC2 finding: counts and the two taxa that move in opposite directions.
@@ -341,281 +318,225 @@ expect(f"falls {-_l2('', 'RadiationIR', 'Acetatifactor sp011959105'):.2f} log2 w
 expect(f"is {_l2('_radrefIR', 'DietSCFAs', 'Acetatifactor sp011959105'):.2f} log2 higher in irradiated SCFAs", "Acetatifactor SCFAs+IR vs IR")
 expect(f"Dysosmobacter rises {_l2('', 'RadiationIR', ';g__Dysosmobacter'):.2f} log2", "Dysosmobacter IR on control")
 expect(f"is {-_l2('_radrefIR', 'DietSCFAs', ';g__Dysosmobacter'):.2f} log2 lower in irradiated SCFAs", "Dysosmobacter SCFAs+IR vs IR")
-for _h in ("How taxa are tested", "Structural zeros: taxa present in some groups", "ANCOM-BC2: abundance in the 104 taxa", "Both together"):
-    if _h not in html:
-        misses.append(f"DA part heading missing: {_h}")
-_order = [html.find(_h) for _h in ("How taxa are tested", "Structural zeros: taxa present", "ANCOM-BC2: abundance in", "Both together", "<h2>Summary</h2>")]
-if _order != sorted(_order):
-    misses.append("DA parts are out of order")
 
-if _fr.p_interaction.isna().any():
-    misses.append("Firth: some taxa have no interaction p-value")
 
-# ---- PICRUSt2 (run_picrust2.sh), per-feature LinDA via ggpicrust2 at MetaCyc, KO and EC
-# (run_ggpicrust2_linda.R, all features and --min-presence 8/12/16), PERMANOVA per level
-# (picrust2_permanova.R) ----
-import gzip  # noqa: E402
-from statsmodels.stats.multitest import multipletests  # noqa: E402
-_LV = ["MetaCyc", "KO", "EC"]; _CON = ["SCFAs vs Control", "SCFAs+IR vs IR", "IR vs Control", "SCFAs+IR vs SCFAs"]
-_pm = pd.read_csv(os.path.join(TAB, "PICRUSt2_permanova.tsv"), sep="\t").set_index(["level", "term"])
-_wn = pd.read_csv(os.path.join(OUT, "picrust2", "pipeline", "KO_metagenome_out", "weighted_nsti.tsv.gz"), sep="\t", index_col=0).weighted_NSTI
-_nsti = pd.read_csv(os.path.join(OUT, "picrust2", "pipeline", "combined_marker_predicted_and_nsti.tsv.gz"), sep="\t", index_col=0).metadata_NSTI
-if (_nsti > 2).any():
-    misses.append("PICRUSt2: some ASVs exceed NSTI 2, but the text says none is dropped")
-if len(_nsti) != 2573 or len(_wn) != 32:
-    misses.append(f"PICRUSt2: {len(_nsti)} ASVs / {len(_wn)} mice, the text says 2,573 / 32")
-expect(f"weighted NSTI runs from {_wn.min():.2f} to {_wn.max():.2f}", "NSTI range (caption)")
+# ---- PICRUSt2 (run_picrust2.sh, picrust2_permanova.R, run_picrust2_maaslin3.R, plot_picrust2_targets.py):
+# check_picrust2.py; the LinDA-era block is kept in the scratchpad as reza_check_report_linda.py ----
+import check_picrust2  # noqa: E402
+_pm_miss, _ko_nom, _ko_ch = check_picrust2.check(html)
+misses += _pm_miss
+if "LinDA" in html:
+    misses.append("the report mentions LinDA, which it does not use")
 
-_L, _S = {}, {}
-for _lv in _LV:
-    for _mp, _suf in ((0, ""), (8, "_minpres8"), (12, "_minpres12"), (16, "_minpres16")):
-        _d = pd.read_csv(os.path.join(TAB, f"PICRUSt2_{_lv}_linda{_suf}.tsv"), sep="\t", quoting=3)
-        _L[(_lv, _mp)] = _d
-        for _c in _CON:
-            _x = _d[_d.contrast == _c]
-            if not np.allclose(multipletests(_x.p, method="fdr_bh")[1], _x.q):
-                misses.append(f"LinDA {_lv} {_mp} {_c}: q is not BH within the contrast")
-            _sx = _x[_x.p < 0.05]
-            _S[(_lv, _mp, _c)] = dict(n=len(_x), raw=len(_sx), down=int((_sx.log2fc < 0).sum()), qb=int((_x.q < 0.05).sum()),
-                                     top=list(_x.sort_values("p").description.head(3)), med=_x.log2fc.median())
-        if _mp == 16 and (_d.n_predicted < 16).any():
-            misses.append(f"LinDA {_lv} >=16 fit contains features predicted in fewer than 16 mice")
-        if _d.description.isna().any():
-            misses.append(f"LinDA {_lv} {_mp}: features without a description")
-_ex = lambda k: round(0.05 * k)
-expect(f"{_S[('KO', 0, _CON[0])]['n']:,} KEGG orthologs (KO), {_S[('EC', 0, _CON[0])]['n']:,} enzymes (EC) and {_S[('MetaCyc', 0, _CON[0])]['n']} MetaCyc pathways", "feature counts")
-# table rows
-_pi = html.index("q &lt; 0.05 by filter: all / 8 / 12 / 16")
-_rows = [[re.sub(r"<[^>]+>", " ", x).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", r)]
-         for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html[_pi:html.index("</tbody>", _pi)], re.S)]
-_want = []
-for _lv in _LV:
-    for _c in _CON:
-        a, w = _S[(_lv, 0, _c)], _S[(_lv, 16, _c)]
-        qs = [_S[(_lv, mp, _c)]["qb"] for mp in (0, 8, 12, 16)]
-        _want.append([_c, f"{a['raw']:,}", f"{w['raw']:,} / {w['n']:,} (~{_ex(w['n']):,})", " / ".join(f"{x:,}" for x in qs),
-                      "filter-dependent" if any(qs) else "below threshold"])
-_got = [r[-5:] for r in _rows]
-if _got != _want:
-    for g, w_ in zip(_got, _want):
-        if g != w_:
-            misses.append(f"LinDA table row: report {g}, tables {w_}")
-    if len(_got) != len(_want):
-        misses.append(f"LinDA table has {len(_got)} rows, expected {len(_want)}")
-# PERMANOVA
-_pr = lambda lv, t: _pm.loc[(lv, t)].effect * 100
-_pv = lambda lv, t: _pm.loc[(lv, t)].p
-_rng = lambda vals, fmt: f"{min(vals):{fmt}}–{max(vals):{fmt}}"
-expect(f"diet explains {_rng([_pr(l, 'Diet') for l in _LV], '.1f')}% of the variation (p = {_rng([_pv(l, 'Diet') for l in _LV], '.3f')})", "synthesis diet")
-expect(f"irradiation {_rng([_pr(l, 'Radiation') for l in _LV], '.1f')}% (p ≥ {min(_pv(l, 'Radiation') for l in _LV):.2f})", "synthesis irradiation")
-expect(f"the interaction {_rng([_pr(l, 'Diet:Radiation') for l in _LV], '.1f')}% (p = {_rng([_pv(l, 'Diet:Radiation') for l in _LV], '.2f')})", "synthesis interaction")
-expect(f"(PERMDISP p ≥ {min(_pv(l, 'group') for l in _LV):.2f})", "PERMDISP")
-# findings
-_w = {l: _S[(l, 16, "SCFAs+IR vs IR")] for l in _LV}; _v = {l: _S[(l, 16, "SCFAs+IR vs SCFAs")] for l in _LV}
-_d0 = {l: _S[(l, 16, "SCFAs vs Control")] for l in _LV}; _i0 = {l: _S[(l, 16, "IR vs Control")] for l in _LV}
-expect(f"SCFAs+IR against IR gives {_w['MetaCyc']['raw']} of {_w['MetaCyc']['n']} pathways, {_w['KO']['raw']:,} of {_w['KO']['n']:,} orthologs "
-       f"and {_w['EC']['raw']} of {_w['EC']['n']:,} enzymes at raw p &lt; 0.05, where chance gives about "
-       f"{_ex(_w['MetaCyc']['n'])}, {_ex(_w['KO']['n'])} and {_ex(_w['EC']['n'])}", "LinDA SCFAs+IR vs IR lean")
-expect(f"{sum(_w[l]['down'] for l in _LV):,} of these {sum(_w[l]['raw'] for l in _LV):,} are lower in SCFAs+IR", "LinDA direction count")
-expect(f"({_v['MetaCyc']['raw']}, {_v['KO']['raw']} and {_v['EC']['raw']})", "LinDA SCFAs+IR vs SCFAs counts")
-expect(f"three ({_d0['MetaCyc']['raw']}, {_d0['KO']['raw']} and {_d0['EC']['raw']}; {_i0['MetaCyc']['raw']}, {_i0['KO']['raw']} and {_i0['EC']['raw']}, among features predicted in at least 16 mice)", "LinDA other contrasts")
-if not all(_d0[l]["raw"] < _ex(_d0[l]["n"]) and _i0[l]["raw"] < _ex(_i0[l]["n"]) for l in _LV):
-    misses.append("LinDA: a non-SCFAs+IR contrast is not below chance at >= 16")
-expect(f"Among the strongest pathways are {_w['MetaCyc']['top'][0]}, {_w['MetaCyc']['top'][1]} and {_w['MetaCyc']['top'][2]}", "LinDA strongest pathways")
-_q = {l: [_S[(l, mp, "SCFAs+IR vs IR")]["qb"] for mp in (0, 8, 12, 16)] for l in _LV}
-expect(f"goes from {_q['MetaCyc'][0]} / {_q['KO'][0]} / {_q['EC'][0]} (pathways / orthologs / enzymes) with every feature to "
-       f"{_q['MetaCyc'][3]} / {_q['KO'][3]:,} / {_q['EC'][3]} among features predicted in at least 16 mice", "LinDA q sweep")
-expect(f"orthologs at 8 mice give {_S[('KO', 8, 'SCFAs+IR vs SCFAs')]['qb']:,} for SCFAs+IR against SCFAs and none in any other fit", "LinDA KO at 8")
-if any(_S[("KO", mp, "SCFAs+IR vs SCFAs")]["qb"] for mp in (0, 12, 16)) or _q["KO"][1]:
-    misses.append("LinDA KO: q counts at other filters are not zero as the text says")
-_meds = [_S[(l, mp, c)]["med"] for l in _LV for mp in (0, 8, 12, 16) for c in ("SCFAs+IR vs IR", "SCFAs+IR vs SCFAs")]
-expect(f"moves between {min(_meds):.2f} and {max(_meds):+.2f} log2", "LinDA median shift")
-_e0 = _L[("EC", 0)]; _eh = _e0[(_e0.contrast == "SCFAs+IR vs IR") & (_e0.q < 0.05)]
-if sorted(_eh.n_predicted) != [5, 32]:
-    misses.append(f"EC q hits: predicted in {sorted(_eh.n_predicted)} mice, the text says 5 and 32")
-_eh = _eh[_eh.n_predicted == 32].iloc[0]
-expect(f"call on a well-predicted feature with every feature fitted is {_eh.description} (EC {_eh.feature}, predicted in all 32 mice), lower in SCFAs+IR ({_eh.log2fc:+.2f} log2, q = {_eh.q:.3f})", "EC well-predicted hit")
-_k0 = _L[("KO", 0)]; _kh = _k0[(_k0.contrast == "SCFAs+IR vs IR") & (_k0.q < 0.05)]
-if len(_kh) != 3 or set(_kh.n_predicted) != {5}:
-    misses.append("KO q hits with every feature: not three KOs predicted in five mice")
-_ks = _k0[(_k0.contrast == "SCFAs vs Control") & (_k0.p < 0.05)]
-expect(f"{len(_ks)} orthologs differ between the diets without irradiation at raw p &lt; 0.05, {round(100 * (_ks.n_predicted < 16).mean())}% of them predicted in fewer than 16 mice", "KO sparse pattern")
-expect(f"among well-predicted orthologs that contrast gives {_d0['KO']['raw']}, below chance", "KO sparse vs well-predicted")
-_kab = pd.read_csv(os.path.join(OUT, "picrust2", "pipeline", "KO_metagenome_out", "pred_metagenome_unstrat.tsv.gz"), sep="\t", index_col=0)
-_who = (_kab.loc[_ks[_ks.n_predicted < 16].feature] > 0).mean()
-_nine = _who[_who > 0.5].index
-_grp = pd.read_csv(os.path.join(OUT, "metadata_factorial.tsv"), sep="\t", index_col=0, keep_default_na=False).Group
-if len(_nine) != 9 or _grp[_nine].value_counts().to_dict() != {"SCFAs": 4, "Control": 2, "IR": 2, "SCFAs+IR": 1}:
-    misses.append(f"nine-mouse pattern: {_grp[_nine].value_counts().to_dict()}")
-expect(f"({_rng([_pr(l, 'Diet') for l in _LV], '.0f')}%, p = {_rng([_pv(l, 'Diet') for l in _LV], '.3f')})", "summary diet")
-expect(f"SCFAs+IR against IR gives {_w['MetaCyc']['raw']} pathways, {_w['KO']['raw']:,} KOs and {_w['EC']['raw']} enzymes at raw p &lt; 0.05 against about "
-       f"{_ex(_w['MetaCyc']['n'])}, {_ex(_w['KO']['n'])} and {_ex(_w['EC']['n'])} by chance", "summary LinDA")
-expect(f"{_rng([_pr(l, 'Diet:Radiation') for l in _LV], '.1f')}% of profile variation (p = {_rng([_pv(l, 'Diet:Radiation') for l in _LV], '.2f')})", "six-ways row")
-if not (html.index("<h2>Differential abundance</h2>") < html.index("<h2>Predicted function (PICRUSt2)</h2>") < html.index("<h2>Summary</h2>")):
-    misses.append("PICRUSt2 section is not between Differential abundance and Summary")
-# Per-database subsections: PCA, heatmap and volcano of that database, a top-features table, a summary.
-def _fmtp(x):
-    if x < 0.001:
-        return f"{x:.1e}"
-    if x < 0.1:
-        return f"{x:.4f}" if (x < 0.05) != (round(x, 3) < 0.05) else f"{x:.3f}"
-    return f"{x:.2f}"
-_LVN = {"MetaCyc": "MetaCyc pathways", "KO": "KEGG orthologs", "EC": "Enzymes"}
-_vres = {}
-for _cls, _lv in (("mc", "MetaCyc"), ("ko", "KO"), ("ec", "EC")):
-    _m = re.search(rf'<input type="radio" name="vres"[^>]*value="{_cls}"', html)
-    _i = html.find(f'<div class="view {_cls}">', html.index('name="vres"'))
-    if not _m or _i < 0:
-        misses.append(f"results panel: no {_lv} view"); continue
-    _blk = html[_i:html.index("</tbody>", _i) + 8]
-    _got = [[re.sub(r"<[^>]+>", "", x).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", r)]
-            for r in re.findall(r"<tr[^>]*>(.*?)</tr>", _blk[_blk.index("<tbody>"):], re.S)]
-    _want = []
-    _all = _L[(_lv, 0)].set_index(["contrast", "feature"])
-    for _c in _CON:
-        _x = _L[(_lv, 16)]; _x = _x[_x.contrast == _c].sort_values("p").head(5)
-        for _r in _x.itertuples():
-            _qa = _fmtp(_all.loc[(_c, _r.feature)].q) if (_c, _r.feature) in _all.index else "—"
-            _d = ("no name in either KO map" if _r.description == "not_found" else _r.description).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            _want.append([_r.feature.replace("ko:", ""), _d, f"{_r.log2fc:+.2f}", _fmtp(_r.p), _fmtp(_r.q), _qa])
-    _got6 = [g[-6:] for g in _got]
-    if _got6 != _want:
-        misses.append(f"{_lv} results view: table differs from the tables: {[(g, w) for g, w in zip(_got6, _want) if g != w][:2] or (len(_got6), len(_want))}")
-    _wv, _vv = _S[(_lv, 16, "SCFAs+IR vs IR")], _S[(_lv, 16, "SCFAs+IR vs SCFAs")]
-    _txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", _blk))
-    for _w in (f"{_S[(_lv, 0, _CON[0])]['n']:,} predicted. Diet explains {_pm.loc[(_lv, 'Diet')].effect * 100:.1f}%",
-               f"interaction {_pm.loc[(_lv, 'Diet:Radiation')].effect * 100:.1f}% (p = {_fmtp(_pm.loc[(_lv, 'Diet:Radiation')].p)})",
-               f"LinDA gives {_wv['raw']:,} at raw p &lt; 0.05 for SCFAs+IR against IR ({_wv['down']:,} lower in SCFAs+IR; about {_ex(_wv['n']):,} expected by chance)",
-               f"and {_vv['raw']:,} for SCFAs+IR against SCFAs; the other two contrasts give {_S[(_lv, 16, 'SCFAs vs Control')]['raw']:,} and {_S[(_lv, 16, 'IR vs Control')]['raw']:,}"):
-        if _w not in _txt:
-            misses.append(f"{_lv} results view: '{_w}' not found")
-# Figure panels: each view holds its own database's image.
-for _stem, _name in (("pca", "vpca"), ("heatmap", "vhm"), ("volcano", "vvol")):
-    _p0 = html.index(f'name="{_name}"')
-    for _cls, _lv in (("mc", "MetaCyc"), ("ko", "KO"), ("ec", "EC")):
-        if not re.search(rf'<div class="view {_cls}">\s*<div class="one">\s*<img src="figures/picrust2_{_lv}_{_stem}\.png"', html[_p0:]):
-            misses.append(f"panel {_stem}: no {_lv} view")
-# Toggle wiring: each radio has its id and a label pointing at it.
-for _name in ("vres", "vpca", "vhm", "vvol"):
-    for _cls in ("mc", "ko", "ec"):
-        if not re.search(rf'<input type="radio" name="{_name}" id="{_name}{_cls}" value="{_cls}"', html) or f'<label for="{_name}{_cls}">' not in html:
-            misses.append(f"panel {_name}: {_cls} toggle not wired")
-# Findings: exactly three, all synthesis across databases, after the panels.
-_sec = html[html.index("<h2>Predicted function (PICRUSt2)</h2>"):html.index("</section>", html.index("<h2>Predicted function (PICRUSt2)</h2>"))]
-_last_db_panel = max(_sec.index(f'name="{n}"') for n in ("vres", "vpca", "vhm", "vvol"))
-if (len(re.findall(r'class="finding', _sec)) != 3
-        or not _last_db_panel < _sec.index("What the three databases show together") < _sec.index("Acetate metabolism</h3>") < _sec.index('name="vac"')):
-    misses.append("PICRUSt2 section: not database panels, then three synthesis findings, then the acetate panel")
-# ---- acetate panel (picrust2_acetate.py) ----
-_ac = pd.read_csv(os.path.join(TAB, "PICRUSt2_acetate_results.tsv"), sep="\t", quoting=3)
-_acf = pd.read_csv(os.path.join(TAB, "PICRUSt2_acetate_features.tsv"), sep="\t", quoting=3)
-_colmap = {"A": ("SCFAs vs Control", ""), "B": ("SCFAs+IR vs IR", ""), "C": ("IR vs Control", ""),
-           "D": ("SCFAs+IR vs SCFAs", ""), "B′": ("SCFAs+IR vs IR", "_exclC2"), "D′": ("SCFAs+IR vs SCFAs", "_exclN3.2")}
-for _r in _ac.itertuples():
-    _sparse = _r.n_predicted < 16
-    if _sparse != _r.role.startswith("Glyoxylate"):
-        misses.append(f"acetate {_r.feature}: sparse flag and role disagree")
-    _c, _suf = _colmap[_r.column]
-    if _sparse and _suf:
-        if not np.isnan(_r.log2fc):
-            misses.append(f"acetate {_r.feature} {_r.column}: sparse feature has a one-mouse refit value")
+# ---- ALDEx3 check on the interaction ----
+_IC = "DietSCFAs:RadiationIR"
+_anc = pd.read_csv(os.path.join(TAB, f"{PRE}.tsv"), sep="\t").set_index("taxon")
+_al = {}
+for _run in ("gamma0.5", "gamma0", "gamma0.5_seed7", "gamma0.5_ns2000"):
+    _al[_run] = pd.read_csv(os.path.join(TAB, f"ALDEx3_factorial_Greengenes2_{_run}.tsv"), sep="\t").set_index("taxon")
+    if set(_al[_run].index) != set(_anc.index):
+        misses.append(f"ALDEx3 {_run}: taxa differ from the ANCOM-BC2 default fit")
+_hits = lambda a: set(a.index[a[f"q_{_IC}"] < 0.05])
+for _run in ("gamma0.5_seed7", "gamma0.5_ns2000"):
+    if _hits(_al[_run]) != _hits(_al["gamma0.5"]):
+        misses.append(f"ALDEx3 hit set changes in the {_run} rerun")
+
+_x = pd.read_csv(os.path.join(TAB, "DA_interaction_intersection_Greengenes2.tsv"), sep="\t").set_index("taxon")
+_a5 = _al["gamma0.5"].reindex(_x.index)
+_lfc = _anc[f"lfc_{_IC}"].reindex(_x.index) / LN2
+_both = (_anc[f"q_{_IC}"].reindex(_x.index) < 0.05) & (_a5[f"q_{_IC}"] < 0.05) & ((_lfc > 0) == (_a5[f"est_{_IC}"] > 0))
+if not (np.allclose(_x.ancombc2_log2fc, _lfc) and np.allclose(_x["aldex3_log2fc_gamma0.5"], _a5[f"est_{_IC}"])
+        and np.allclose(_x["aldex3_q_gamma0"], _al["gamma0"][f"q_{_IC}"].reindex(_x.index))
+        and (_x.passes_both == _both).all() and (_x.n_zero_mice == _a5.n_zero_mice).all()):
+    misses.append("intersection table is stale against the ANCOM-BC2 and ALDEx3 fits")
+
+_fx = lambda v: f"{v:+.2f}".replace("-", "−")
+_H = "Checked with ALDEx3: does the interaction hold"
+_xh = _x[_x.ancombc2_q < 0.05].sort_values("ancombc2_q")
+_tr = table_rows(_H)
+if len(_tr) != len(_xh):
+    misses.append(f"ALDEx3 table has {len(_tr)} rows, expected {len(_xh)}")
+for _row, (_t, _r) in zip(_tr, _xh.iterrows()):
+    _fq = lambda v: f"{v:.2f}" if v >= 0.1 else sig2(v)
+    _want = [str(int(_r.n_zero_mice)), _fx(_r.ancombc2_log2fc), _fq(_r.ancombc2_q), _fx(_r["aldex3_log2fc_gamma0.5"]),
+             _fq(_r["aldex3_q_gamma0.5"]), _fq(_r["aldex3_q_gamma0"]), "yes" if _r.passes_both else "no"]
+    _name = _r.label.partition(" (")[0][3:]
+    if not _row[0].startswith(_name) or _row[1:] != _want:
+        misses.append(f"ALDEx3 table row for {_name}: {_row} != {_want}")
+_body = html[html.index("<tbody>", html.index(_H)):html.index("</tbody>", html.index(_H))]
+for _tr_html, (_t, _r) in zip(re.findall(r"<tr>(.*?)</tr>", _body, re.S), _xh.iterrows()):
+    _tds = re.findall(r"<td[^>]*>(.*?)</td>", _tr_html)
+    for _ci, _q in ((3, _r.ancombc2_q), (5, _r["aldex3_q_gamma0.5"]), (6, _r["aldex3_q_gamma0"])):
+        if ("<b>" in _tds[_ci]) != (_q < 0.05):
+            misses.append(f"ALDEx3 table bold does not match q < 0.05 for {_t} column {_ci}")
+
+_zf = _x[_x.n_zero_mice == 0]
+_off = abs((_zf["aldex3_log2fc_gamma0.5"] - _zf.ancombc2_log2fc).median())
+_sp = _x[_x.n_zero_mice > 8]
+_dun = _x[_x.label == "g__Duncaniella"].iloc[0]
+_sph = _xh[_xh.n_zero_mice > 0]
+_W = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight']
+expect(f"For the {len(_zf)} taxa present in all 32 mice, ALDEx3 ranks the interaction in exactly the order", "ALDEx3 zero-free count")
+expect(f"every estimate {_off:.2f} log2 higher", "ALDEx3 offset")
+expect(f"is {_fx(_dun.ancombc2_log2fc)} log2 in ANCOM-BC2 and {_fx(_dun['aldex3_log2fc_gamma0.5'])} in ALDEx3, "
+       f"raw p = {sig2(_al['gamma0.5'].loc[_dun.name, f'p_{_IC}'])} but q = {sig2(_dun['aldex3_q_gamma0.5'])}", "ALDEx3 Duncaniella")
+expect(f"The other {_W[len(_sph)]} hits have a zero count in {int(_sph.n_zero_mice.min())} to {int(_sph.n_zero_mice.max())} of the 32 mice",
+       "ALDEx3 zero range of sparse hits")
+expect(f"For {_W[int(_sph.sign_agrees.sum())]} of them ALDEx3 gives a similar estimate", "ALDEx3 same-sign count")
+expect(f"across the {len(_sp)} taxa with a zero in more than 8 mice, the median standard error is "
+       f"{_al['gamma0.5'].loc[_sp.index, f'se_{_IC}'].median():.2f} log2 in ALDEx3 against "
+       f"{(_anc.loc[_sp.index, f'se_{_IC}'] / LN2).median():.2f} in ANCOM-BC2", "ALDEx3 SE medians")
+_flip = [("genus-level " if _l.startswith("g__") else "") + _l.partition(" (")[0][3:] for _l in _sph.label[~_sph.sign_agrees]]
+_tight = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html))
+if f"For the other two, {' and '.join(_flip)}, the sign changes" not in _tight:
+    misses.append(f"ALDEx3 sign flips: {_flip} not named as in the table")
+_q5, _q0 = sig2(_x["aldex3_q_gamma0.5"].min()), sig2(_x["aldex3_q_gamma0"].min())
+expect(f"(smallest q {_q5} and {_q0})", "ALDEx3 smallest q, both gammas")
+expect(f"ALDEx3 puts no interaction below q = 0.05 (smallest q {_q5})", "ALDEx3 summary row")
+expect(f"No taxon at q &lt; 0.05 (smallest q {_q5}); agrees with ANCOM-BC2 on the {len(_zf)} taxa in every mouse", "ALDEx3 seven-ways row")
+expect(f"{len(_xh)} in ANCOM-BC2, none in ALDEx3", "ALDEx3 figure caption counts")
+if int(_x.passes_both.sum()) != 0 or int((_x["aldex3_q_gamma0.5"] < 0.05).sum()) != 0:
+    misses.append("the text says no taxon passes in ALDEx3, but the table has some")
+# ---- presence dot map (plot_presence_dots_factorial.py): first panel of Both together ----
+_un = pd.read_csv(os.path.join(TAB, f"{PRE}_untestable_absent_from_a_cell.tsv"), sep="\t")
+_ntest = len(pd.read_csv(os.path.join(TAB, f"{PRE}.tsv"), sep="\t"))
+_cells = {g: next(c for c in _un.columns if c.startswith(f"{g} (n=")) for g in ("Control", "IR", "SCFAs", "SCFAs+IR")}
+for _gp in (False, True):
+    _stem = f"{PRE}{'_gplus' if _gp else ''}_presence_dots"
+    _sd = pd.read_csv(os.path.join(OUT, "figures", f"{_stem}.tsv"), sep="\t").iloc[0]
+    _u = _un[[not _t.split(";")[-1].strip()[3:] or not _t.split(";")[-1].strip().startswith("s__") for _t in _un.taxon]] if _gp else _un
+    _want = {f"absent_{g}": int((_u[c] == 0).sum()) for g, c in _cells.items()}
+    _want["structural_zeros"] = len(_u)
+    if not _gp:
+        _want["taxa"] = _ntest + len(_un)
+    for _k, _v in _want.items():
+        if int(_sd[_k]) != _v:
+            misses.append(f"{_stem}: sidecar {_k} = {_sd[_k]}, recounted {_v}")
+    if f'src="figures/{_stem}.png"' not in html:
+        misses.append(f"{_stem}: not in the report")
         continue
-    _src = _L[(_r.database, 0)] if _sparse else (_L[(_r.database, 16)] if not _suf else
-            pd.read_csv(os.path.join(TAB, f"PICRUSt2_{_r.database}_linda_minpres16{_suf}.tsv"), sep="\t", quoting=3))
-    _x = _src[(_src.feature == _r.feature) & (_src.contrast == _c)].iloc[0]
-    if not (np.isclose(_x.log2fc, _r.log2fc) and np.isclose(_x.p, _r.p)):
-        misses.append(f"acetate {_r.feature} {_r.column}: results file differs from LinDA table")
-if sorted(zip(_acf.database, _acf.feature)) != sorted(set(zip(_ac.database, _ac.feature))):
-    misses.append("acetate: results file and feature list differ")
-_ACOL = ["A", "B", "C", "D", "B′", "D′"]
-def _accell(r):
-    if np.isnan(r.log2fc):
-        return "—"
-    return f"{r.log2fc:+.2f}p = {_fmtp(r.p)}"
-for _cls, _db in (("mc", "MetaCyc"), ("ko", "KO"), ("ec", "EC")):
-    if not re.search(rf'<input type="radio" name="vac" id="vac{_cls}" value="{_cls}"', html) or f'<label for="vac{_cls}">' not in html:
-        misses.append(f"acetate panel: {_cls} toggle not wired")
-    _i = html.find(f'<div class="view {_cls}">', html.index('name="vac"'))
-    _blk = html[_i:html.index("</tbody>", _i)]
-    if f'src="figures/picrust2_{_db}_acetate.png"' not in _blk:
-        misses.append(f"acetate panel {_db}: figure missing from its view")
-    _got = [[re.sub(r"<[^>]+>", "", x).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", r)]
-            for r in re.findall(r"<tr>(.*?)</tr>", _blk[_blk.index("<tbody>"):], re.S)]
-    _want = []
-    _sub = _ac[_ac.database == _db]
-    for (_role, _fid), _g in _sub.groupby(["role", "feature"], sort=False):
-        _g = _g.set_index("column")
-        _want.append([_g.label.iloc[0].replace("&", "&amp;"), str(int(_g.n_predicted.iloc[0]))] + [_accell(_g.loc[c]) for c in _ACOL])
+    _cap = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[html.index(f'src="figures/{_stem}.png"'):].split("</figcaption>")[0]))
+    if _gp:
+        _w = [f"for the {int(_sd.taxa)} taxa named no further than genus; {int(_sd.structural_zeros)} of them are structural zeros"]
+    else:
+        _gaps = sorted(((int(_sd[f"absent_{g}"]), g) for g in _cells), reverse=True)
+        _w = [f"the {_ntest} tested and the {int(_sd.structural_zeros)} structural zeros: {int(_sd.taxa)} in all",
+              "no dot in that column: " + ", ".join(f"{n} in {g}" for n, g in _gaps[:-1]) + f" and {_gaps[-1][0]} in {_gaps[-1][1]}"]
+    for _x in _w:
+        if _x not in _cap:
+            misses.append(f"{_stem}: caption lacks '{_x}'")
+if ">Both together</h3>" in html:
+    misses.append("the DA section has no 'Both together' part any more")
+if "_untestable_heatmap.png" in html:
+    misses.append("the per-mouse structural-zero heatmap is still in the report")
+
+# ---- community composition: group means of the species that differ most, shares only ----
+_c = counts.loc[counts.index.intersection(tax.index)]
+_paths = tax.loc[_c.index].map(lambda t: ";".join([p for p in (x.strip() for x in t.split(";")) if p][:7]))
+_c = _c.groupby(_paths).sum()
+_meta = pd.read_csv(os.path.join(os.path.dirname(OUT), "metadata.tsv"), sep="\t", index_col=0)
+_c = _c[_meta.index.intersection(_c.columns)]
+_rel = _c / _c.sum() * 100
+_G = ["Control", "SCFAs", "IR", "SCFAs+IR"]
+_mean = pd.DataFrame({g: _rel.loc[:, _meta.loc[_rel.columns, "Group"] == g].mean(axis=1) for g in _G})
+_mean = _mean[~_mean.index.str.endswith("g__;s__")]
+_top = (_mean.max(axis=1) - _mean.min(axis=1)).sort_values(ascending=False).index[:12]
+_cs = html[html.index("<h2>Community composition</h2>"):html.index("</section>", html.index("<h2>Community composition</h2>"))]
+_rows = re.findall(r"<tr><td>.*?</tr>", _cs)
+if len(_rows) != 12:
+    misses.append(f"composition table has {len(_rows)} rows, expected 12")
+for _r, _t in zip(_rows, _top):
+    _want = [("&lt;0.1%" if v < 0.05 else f"{v:.1f}%") for v in _mean.loc[_t, _G]]
+    _got = re.findall(r'<td class="n">(.*?)</td>', _r)
     if _got != _want:
-        misses.append(f"acetate panel {_db}: table differs: {[(g, w) for g, w in zip(_got, _want) if g != w][:1] or (len(_got), len(_want))}")
-    for _c in re.findall(r'<td class="n">(.*?)</td>', _blk):
-        _m = re.search(r"p = ([0-9.e-]+)", _c)
-        if _m and (_c.startswith("<b>") != (float(_m.group(1)) < 0.05)):
-            misses.append(f"acetate panel {_db}: bold does not match p < 0.05: {_c}")
-_core = _ac[_ac.role.str.startswith("Acetate from acetyl-CoA")].dropna(subset=["log2fc"])
-expect(f"change by at most {_core.log2fc.abs().max():.2f} log2 in any contrast or database (p ≥ {_core.p.min():.2f})", "acetate core route")
-_g = lambda db, fid, col: _ac[(_ac.database == db) & (_ac.feature == fid) & (_ac.column == col)].iloc[0]
-for _db, _fid, _txt in (("MetaCyc", "PWY-5100", "pyruvate fermentation to acetate and lactate ("), ("KO", "ko:K00198", "Wood–Ljungdahl CO dehydrogenase ("),
-                        ("KO", "ko:K14138", "acetyl-CoA synthase ("), ("KO", "ko:K01938", "formate–tetrahydrofolate ligase ("),
-                        ("KO", "ko:K01034", "acetate CoA-transferase ("), ("KO", "ko:K00158", "pyruvate oxidase ("), ("KO", "ko:K07034", "acetate uptake transporter (")):
-    _x = _g(_db, _fid, "B")
-    expect(f"{_txt}{_x.log2fc:+.2f}" + (" log2" if _fid == "PWY-5100" else "") + f", p = {_fmtp(_x.p)})", f"acetate {_fid}")
-expect(f"hold without mouse C2 (p = {_fmtp(_g('MetaCyc', 'PWY-5100', 'B′').p)} and {_fmtp(_g('KO', 'ko:K01938', 'B′').p)})", "acetate without C2")
-# PERMANOVA table, one row per database.
-_pi = html.index("<th class=\"n\">Diet: R² (p)</th>")
-_prow = [[re.sub(r"<[^>]+>", " ", x).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", r)]
-         for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html[_pi:html.index("</tbody>", _pi)], re.S)]
-for _lv, _r in zip(_LV, _prow):
-    _w = [f"{_pm.loc[(_lv, t)].effect * 100:.1f}% ({_fmtp(_pm.loc[(_lv, t)].p)})" for t in ("Diet", "Radiation", "Diet:Radiation")] + [_fmtp(_pm.loc[(_lv, "group")].p)]
-    if _r[1:] != _w:
-        misses.append(f"PERMANOVA table {_lv}: report {_r[1:]}, tables {_w}")
-# Heatmap selection: 10 strongest per contrast at >= 16 mice, pooled.
-_hm = pd.read_csv(os.path.join(TAB, "PICRUSt2_heatmap_features.tsv"), sep="\t", quoting=3)
-for _lv in _LV:
-    _d = _L[(_lv, 16)]
-    _want = set().union(*[set(_d[_d.contrast == c].sort_values("p").feature.head(10)) for c in _CON])
-    if set(_hm[_hm.level == _lv].feature) != _want:
-        misses.append(f"heatmap {_lv}: feature set is not the 10 strongest per contrast")
-    _i = html.index(f"figures/picrust2_{_lv}_heatmap.png")
-    _cap = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[html.index("<figcaption>", _i):html.index("</figcaption>", _i)]))
-    if f"pooled ({len(_want)} features)" not in _cap:
-        misses.append(f"heatmap {_lv}: caption does not give {len(_want)} features")
-# Heatmap captions name the dark SCFAs and IR columns: highest mean z over each level's heatmap rows.
-_F = {"MetaCyc": "pathways_out/path_abun_unstrat.tsv.gz", "KO": "KO_metagenome_out/pred_metagenome_unstrat.tsv.gz",
-      "EC": "EC_metagenome_out/pred_metagenome_unstrat.tsv.gz"}
-for _lv in _LV:
-    _ab = pd.read_csv(os.path.join(OUT, "picrust2", "pipeline", _F[_lv]), sep="\t", index_col=0)[_grp.index]
-    _x = (_ab / _ab.sum()).loc[_hm[_hm.level == _lv].feature.unique()]
-    _mz = _x.sub(_x.mean(1), axis=0).div(_x.std(1), axis=0).mean()
-    if (_mz[_grp == "SCFAs"].idxmax(), _mz[_grp == "IR"].idxmax()) != ("N3.2", "C2"):
-        misses.append(f"heatmap {_lv}: darkest SCFAs/IR columns are not N3.2/C2")
-# One-mouse check: the highest comparison mouse and the refits without it.
-_rel = _kab / _kab.sum()
-def _top(c, g):
-    f_ = _L[("KO", 16)]; f_ = f_[(f_.contrast == c) & (f_.p < 0.05)].feature
-    vc = _rel.loc[f_, _grp.index[_grp == g]].idxmax(axis=1).value_counts()
-    return vc.index[0], int(vc.iloc[0]), len(f_)
-_ts, _ti = _top("SCFAs+IR vs SCFAs", "SCFAs"), _top("SCFAs+IR vs IR", "IR")
-if (_ts[0], _ti[0]) != ("N3.2", "C2"):
-    misses.append(f"one-mouse check: highest mice are {_ts[0]} / {_ti[0]}")
-expect(f"IR mouse {_ti[0]} is the highest IR mouse on {_ti[1]:,} of the {_ti[2]:,} orthologs", "one-mouse C2 count")
-expect(f"but that is SCFAs mouse {_ts[0]}, highest on {_ts[1]} of the {_ts[2]} orthologs", "one-mouse N3.2 count")
-_X = {}
-for _mo in ("N3.2", "C2"):
-    for _lv in _LV:
-        _d = pd.read_csv(os.path.join(TAB, f"PICRUSt2_{_lv}_linda_minpres16_excl{_mo}.tsv"), sep="\t", quoting=3)
-        for _c in ("SCFAs+IR vs IR", "SCFAs+IR vs SCFAs"):
-            _x = _d[_d.contrast == _c]
-            _X[(_mo, _lv, _c)] = (len(_x), int((_x.p < 0.05).sum()), int((_x.q < 0.05).sum()))
-_n3 = [_X[("N3.2", l, "SCFAs+IR vs SCFAs")] for l in _LV]
-expect(f"without it the three give {_n3[0][1]}, {_n3[1][1]} and {_n3[2][1]}, below chance", "without N3.2")
-if not all(x[1] < round(0.05 * x[0]) for x in _n3):
-    misses.append("without N3.2: SCFAs+IR vs SCFAs is not below chance at every level")
-_c2 = [_X[("C2", l, "SCFAs+IR vs IR")] for l in _LV]
-expect(f"without it the three databases still give {_c2[0][1]}, {_c2[1][1]} and {_c2[2][1]}, about four times chance", "without C2 raw")
-expect(f"and to {_c2[0][2]} / {_c2[1][2]} / {_c2[2][2]} without the dominant IR mouse", "without C2 q")
-if not all(x[1] > 3 * round(0.05 * x[0]) for x in _c2):
-    misses.append("without C2: SCFAs+IR vs IR is not several times chance at every level")
+        misses.append(f"composition row {_t.split(';')[-1]}: report {_got}, tables {_want}")
+_ext = sum(_mean.loc[t, _G].idxmax() == "SCFAs+IR" or _mean.loc[t, _G].idxmin() == "SCFAs+IR" for t in _top)
+expect(f"Irradiated SCFAs mice are the extreme group for {_ext} of the 12", "composition extremes")
+expect(f"extreme group for {_ext} of the 12 species that differ most", "summary composition extremes")
+if re.search(r"\bq\b|\bq =|raw p", re.sub(r"<[^>]+>", " ", _cs)):
+    misses.append("Community composition quotes a test result; it precedes the DA methods")
+
+# Composition bars: one toggled view per rank, Kingdom to Species, Genus shown by default.
+for _rk in ("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"):
+    _v = f"rk-{_rk[0].lower()}"
+    if (f'<div class="view {_v}">' not in _cs or f'taxa_factorial_Greengenes2_{_rk}_groups.png' not in _cs
+            or f'value="{_v}"' not in _cs or f'.view.{_v}{{display:block}}' not in html):
+        misses.append(f"composition rank panel: {_rk} view missing or not wired")
+if 'value="rk-g" checked' not in _cs:
+    misses.append("composition rank panel: Genus is not the default view")
+
+# ---- Summary key findings: each number is one the sections above quote ----
+_kf = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[html.index("Key findings</h3>"):]))
+_body = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[:html.index("<h2>Summary</h2>")]))
+for _n in ("q = 0.17", "q = 0.076", "27 of 104", f"{_ko_nom:,} KOs at raw p &lt; 0.05, where chance would give about {_ko_ch}",
+           "56.4 against 64.0", "69.5 to 74.1", "3.0%"):
+    if _n not in _kf:
+        misses.append(f"key findings: '{_n}' missing")
+for _n in ("q = 0.17", "q = 0.076", "27 of 104", "64.0 to 56.4", "69.5 to 74.1", "3.0% (2.0–3.4%)"):
+    if _n not in _body:
+        misses.append(f"key findings quote '{_n}', which no section above states")
+expect(f"irradiated SCFAs mice have the highest or lowest share for {_ext}.", "key finding composition extremes")
+expect("gives the most taxa at q &lt; 0.05 (33)", "key finding SCFAs+IR calls")
+
+# ---- section order: each analysis runs explanation, table, main finding, plot, caveats ----
+def _order(section, steps):
+    _s0 = html.index(section)
+    _sec = html[_s0:html.index("</section>", _s0)]
+    _p = [_sec.find(t) for t in steps]
+    if -1 in _p or _p != sorted(_p):
+        misses.append(f"{section}: out of order or missing: {[t for t, q in zip(steps, _p) if q == -1] or 'order'}")
+
+
+_order("<h2>Alpha diversity</h2>", ["Two-way ANOVA on", "<thead>", "None survives multiple-testing correction",
+                                    "diversity_alpha.png", "Three limits apply", 'class="finding'])
+_order("<h2>Beta diversity</h2>", ["PCoA: how far apart", "A principal coordinates analysis", "the four groups overlap heavily",
+                                   "diversity_beta_pcoa.png", "A PCoA is a picture", "PERMANOVA: do the groups differ",
+                                   "PERMANOVA is <code>adonis2", "<th>Term</th>", "No term passes on any metric",
+                                   "diversity_permanova_r2.png", "PERMANOVA has one blind spot", "PERMDISP: do the groups differ",
+                                   "PERMDISP (vegan's", "<th>Grouping</th>", "Spread is equal in every row",
+                                   "diversity_dispersion.png", 'class="finding'])
+_order("<h2>Community composition</h2>", ["Mean relative abundance in each group", "<th>Species · Greengenes2</th>",
+                                          "The same lineages dominate", "taxa_factorial_Greengenes2_Genus_groups.png",
+                                          "A group mean can be carried"])
+_order("<h2>Differential abundance</h2>", ["104 of them are seen", "Structural zeros: taxa present", "cannot enter a model of log",
+                                           "Absent from first / second", "31 taxa are seen in at least 4 mice",
+                                           "_presence_dots.png", "The share column is how much",
+                                           "ANCOM-BC2: abundance in the 104 taxa", "Version 2.14.0", "Largest up / down",
+                                           "Taxa reach q &lt; 0.05 in every row", "_heattree_DietSCFAs.png",
+                                           "_interaction_forest.png", "_heattree_interaction.png", "ANCOM-BC2 corrects for differences",
+                                           "Checked with ALDEx3", "Version 1.3.1", "Mice with a zero", "For the 17 taxa present in all 32 mice",
+                                           "DA_interaction_concordance_Greengenes2.png", 'class="finding'])
+
+# ---- every section: at most four findings, and they close it ----
+# Sections are the <section> elements; each must open with its <h2>. The Summary alone may add up
+# to two red findings ("finding no": easily misread results) after its four green or orange ones,
+# with only a heading between the two groups (user, 2026-10-01).
+for _m in re.finditer(r"<section[^>]*>(.*?)</section>", html, re.S):
+    _sec = _m.group(1)
+    _h = re.search(r"<h2>(.*?)</h2>", _sec)
+    _name = _h.group(1) if _h else "(section without a heading)"
+    if not _sec.strip().startswith("<h2>"):
+        misses.append(f"{_name}: something precedes the section heading: "
+                      f"{re.sub(r'<[^>]+>', ' ', _sec.strip()[:80])!r}")
+    _boxes = list(re.finditer(r'<div class="finding([^"]*)">.*?</div>', _sec, re.S))
+    _red = [b for b in _boxes if " no" in b.group(1)] if _name == "Summary" else []
+    _other = [b for b in _boxes if b not in _red]
+    if len(_other) > 4:
+        misses.append(f"{_name}: {len(_other)} findings, at most 4")
+    if len(_red) > 2:
+        misses.append(f"{_name}: {len(_red)} red findings, at most 2")
+    if _red and _other and _red[0].start() < _other[-1].start():
+        misses.append(f"{_name}: a red finding comes before a green/orange one")
+    if _boxes:
+        _after = re.sub(r"\s+", " ", re.sub(r"<script.*?</script>|<[^>]+>", " ", _sec[_boxes[-1].end():], flags=re.S)).strip()
+        if _after:
+            misses.append(f"{_name}: content after its findings: {_after[:60]!r}")
+        _rest = re.sub(r'<script.*?</script>|<div class="finding[^"]*">.*?</div>', "", _sec[_boxes[0].start():], flags=re.S)
+        if _red and _other:   # a heading may introduce the red group
+            _rest = re.sub(r"<h3[^>]*>.*?</h3>", "", _rest, flags=re.S)
+        _between = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", _rest)).strip()
+        if _between:
+            misses.append(f"{_name}: findings are not together at the end ({_between[:60]!r} between them)")
 
 if misses:
     print("\n".join(misses))

@@ -45,7 +45,7 @@ CONFIGS = {
     "factorial": dict(
         OUT_DIR=os.path.join(STUDY_DIR, "comparison-Treatment-x-Radiation-factorial"),
         META=os.path.join(STUDY_DIR, "metadata.tsv"), META_FILTER=("Timepoint", "Day17"),
-        STEM="ANCOMBC2_factorial_Greengenes2_Day17_minpres6", PAIR_BY=None,
+        STEM="DA_factorial_Greengenes2_Day17_minpres6", PAIR_BY=None,
         CONTRASTS=[
             ("Do the treatments differ in unirradiated mice?", "IFA vs Control", "IFA", "Control"),
             ("Do the treatments differ in unirradiated mice?", "Inosine vs Control", "Inosine", "Control"),

@@ -1,6 +1,6 @@
 """Report check for the structural-zero presence table, shared by the report checkers.
 
-check(html, text) compares the presence table (the one headed "Absent from first
+check(html, text[, tests]) compares the presence table (the one headed "Absent from first
 / second") row by row with structural_zeros.summary() and checks the headline
 numbers the prose quotes. Returns a list of misses.
 """
@@ -16,7 +16,8 @@ def _fmt(v):
     return "—" if v is None or v != v else (f"{v:.2g}" if v >= 0.01 else f"{v:.1e}")
 
 
-def check(html, text):
+def check(html, text, tests=True):
+    """tests=False: the table carries only the counts (no min p / min q) and the prose quotes no test."""
     misses = []
     df = pd.read_csv(os.path.join(sz.TAB_DIR, f"{sz.STEM}_structural_zeros.tsv"), sep="\t")
     fresh = sz.tests()
@@ -27,14 +28,16 @@ def check(html, text):
     got, question = {}, None
     for r in re.findall(r"<tr[^>]*>(.*?)</tr>", body, re.S):
         c = [re.sub(r"<[^>]+>", "", x).strip() for x in re.findall(r"<td[^>]*>(.*?)</td>", r)]
-        if len(c) == 7:
+        if len(c) == (7 if tests else 5):
             question, c = c[0], c[1:]
         got[(question, c[0])] = tuple(c[1:])
     for r in sz.summary(df):
         want = (str(r["n"]), f"{r['absent_first']} / {r['absent_second']}", str(r["n_half"]),
-                _fmt(r["min_p"]), _fmt(r["min_q"]))
+                _fmt(r["min_p"]), _fmt(r["min_q"]))[:None if tests else 3]
         if got.get((r["question"], r["label"])) != want:
             misses.append(f"presence row {r['label']}: report {got.get((r['question'], r['label']))}, tables {want}")
+    if not tests:
+        return misses, df
     if f"across all {len(df)} such tests" not in text:
         misses.append(f"presence test count {len(df)} not in report")
     if (df.q < 0.05).any():

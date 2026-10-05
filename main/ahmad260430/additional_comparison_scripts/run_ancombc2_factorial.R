@@ -337,11 +337,31 @@ for (db in dbs) {
   write.table(data.frame(taxon = rownames(counts_db)[excl], n_samples = n_present[excl], per_cell,
                          check.names = FALSE),
               excl_path, sep = "\t", quote = FALSE, row.names = FALSE)
+  # The collapsed table before either filter, for methods that filter themselves.
+  if ("--export-only" %in% args)
+    write.table(data.frame(taxon = rownames(counts_db), counts_db, check.names = FALSE),
+                file.path(TAB_DIR, paste0("collapsed_counts_", db, out_suffix, ".tsv")),
+                sep = "\t", quote = FALSE, row.names = FALSE)
   counts_db <- counts_db[keep_db, , drop = FALSE]
   message(sprintf("[factorial] %s: collapse level %d -> %d feature(s); %d in >= %d samples, %d of those in every cell are tested; %d untestable written",
                   db, level, length(keep_db), sum(n_present >= MIN_SAMPLE_PRESENCE), MIN_SAMPLE_PRESENCE,
                   nrow(counts_db), sum(excl)))
   if (nrow(counts_db) == 0) { message("[factorial] nothing left for ", db); next }
+  # The tested taxa, after collapse and both filters, so LinDA and ALDEx3 fit
+  # exactly the features ANCOM-BC2 does. "--export-only" stops here.
+  write.table(data.frame(taxon = rownames(counts_db), counts_db, check.names = FALSE),
+              file.path(TAB_DIR, paste0("tested_counts_", db, out_suffix, ".tsv")),
+              sep = "\t", quote = FALSE, row.names = FALSE)
+  # The tested/untestable split is the method-independent filter step, so under
+  # --export-only it is also written under a DA_ stem: the presence analyses
+  # and the report read these, not any ANCOM-BC2-named file.
+  if ("--export-only" %in% args) {
+    da_stem <- file.path(TAB_DIR, paste0("DA_factorial_", db, out_suffix))
+    write.table(data.frame(taxon = rownames(counts_db)), paste0(da_stem, ".tsv"),
+                sep = "\t", quote = FALSE, row.names = FALSE)
+    file.copy(excl_path, paste0(da_stem, "_untestable_absent_from_a_cell.tsv"), overwrite = TRUE)
+    next
+  }
 
   # The empty-cell failure's only symptom is a vector-recycling warning; with
   # the per-cell rule above it must not appear, so it is an error here.

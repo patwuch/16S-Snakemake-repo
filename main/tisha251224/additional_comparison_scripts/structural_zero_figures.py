@@ -35,18 +35,19 @@ STUDY_DIR = os.path.dirname(THIS_DIR)
 # ---- Study configuration ----
 COMP = "comparison-Diet-x-Condition-factorial"
 META, FILTER, CLASS_COL = f"{COMP}/metadata_factorial.tsv", "", "Group"
-PRE = "ANCOMBC2_factorial_Greengenes2"
-# contrast label (as structural_zeros.CONTRASTS) -> (.res stem suffix, fit table suffix)
+PRE = "MaAsLin3_factorial_Greengenes2"
+# contrast label (as structural_zeros.CONTRASTS) -> (.res stem suffix, tested-taxa table suffix);
+# write_maaslin3_res.R writes both.
 PANELS = {
-    "Inulin vs Cellulose": ("_pairwise_DietInulin", "_pairwise"),
-    "RS vs Cellulose": ("_pairwise_DietRS", "_pairwise"),
-    "RS vs Inulin": ("_pairwise_refInulin_DietRS", "_pairwise"),
-    "Inulin+IR vs Cellulose+IR": ("_condrefIR_pairwise_DietInulin", "_condrefIR_pairwise"),
-    "RS+IR vs Cellulose+IR": ("_condrefIR_pairwise_DietRS", "_condrefIR_pairwise"),
-    "RS+IR vs Inulin+IR": ("_condrefIR_pairwise_refInulin_DietRS", "_condrefIR_pairwise"),
-    "Cellulose+IR vs Cellulose": ("_ConditionIR", ""),
-    "Inulin+IR vs Inulin": ("_refInulin_ConditionIR", "_refInulin"),
-    "RS+IR vs RS": ("_refRS_ConditionIR", "_refRS"),
+    "Inulin vs Cellulose": ("_DietInulin", "_DietInulin_tested"),
+    "RS vs Cellulose": ("_DietRS", "_DietRS_tested"),
+    "RS vs Inulin": ("_refInulin_DietRS", "_refInulin_DietRS_tested"),
+    "Inulin+IR vs Cellulose+IR": ("_condrefIR_DietInulin", "_condrefIR_DietInulin_tested"),
+    "RS+IR vs Cellulose+IR": ("_condrefIR_DietRS", "_condrefIR_DietRS_tested"),
+    "RS+IR vs Inulin+IR": ("_condrefIR_refInulin_DietRS", "_condrefIR_refInulin_DietRS_tested"),
+    "Cellulose+IR vs Cellulose": ("_ConditionIR", "_ConditionIR_tested"),
+    "Inulin+IR vs Inulin": ("_refInulin_ConditionIR", "_refInulin_ConditionIR_tested"),
+    "RS+IR vs RS": ("_refRS_ConditionIR", "_refRS_ConditionIR_tested"),
 }
 COEF = re.compile(r"(.+)_((?:Diet|Condition)[A-Za-z]+)$")
 # ----
