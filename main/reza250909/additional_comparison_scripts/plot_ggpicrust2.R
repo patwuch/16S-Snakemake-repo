@@ -141,5 +141,6 @@ for (lv in names(LEVEL_NAME)) {
   vol <- wrap_plots(panels, ncol = 3) +
     plot_annotation(title = paste("Predicted", LEVEL_NAME[[lv]], "· MaAsLin3, change in share of the predicted total"),
                     caption = "Dashed line at raw p = 0.05; colour marks raw p < 0.05; names mark robust calls (q < 0.05 in all 32 leave-one-mouse-out refits)")
+  set.seed(42)   # ggrepel places the labels when the plot is drawn
   save(vol, paste0("picrust2_", lv, "_volcano"), 16, 11)
 }

@@ -13,6 +13,7 @@ import os
 import re
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Ellipse
@@ -69,6 +70,7 @@ def plot_alpha(args):
             ax.plot(xs, ys, ls="none", marker="o", ms=4.5, zorder=4,
                     mfc="white", mec="0.25", mew=1.1)
     else:
+        np.random.seed(42)   # stripplot's jitter draws from numpy's global RNG
         sns.stripplot(data=merged, x=args.factor, y=metric_label, order=group_order,
                       color="black", alpha=0.5, ax=ax)
 

@@ -120,6 +120,7 @@ def plot_alpha(alpha, stats, suffix, order, colors, cell):
             continue
         sns.boxplot(data=d, x="Group", y="value", order=present, palette=palette,
                     showfliers=False, linewidth=1.1, ax=ax)
+        np.random.seed(42)   # stripplot's jitter draws from numpy's global RNG
         sns.stripplot(data=d, x="Group", y="value", order=present, size=5,
                       linewidth=0.6, edgecolor="black", color="white", ax=ax)
         # Headroom for the stats box, so it never sits on the highest points.
@@ -258,6 +259,7 @@ def plot_dispersion(disp, stats, suffix, order, colors, cell):
             continue
         sns.boxplot(data=d, x="Group", y="distance", order=present, palette=palette,
                     showfliers=False, linewidth=1.1, ax=ax)
+        np.random.seed(42)
         sns.stripplot(data=d, x="Group", y="distance", order=present, size=5,
                       color="black", alpha=0.65, ax=ax)
         ax.set_title(label, fontsize=11, weight="bold")

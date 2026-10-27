@@ -12,6 +12,7 @@ import os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
@@ -32,6 +33,7 @@ def main():
     fig, ax = plt.subplots(figsize=(7, 4))
     sns.boxplot(data=d, x="Group", y="weighted_NSTI", order=order, palette=[colors[g] for g in order],
                 showfliers=False, linewidth=1.1, ax=ax)
+    np.random.seed(42)   # stripplot's jitter draws from numpy's global RNG
     sns.stripplot(data=d, x="Group", y="weighted_NSTI", order=order, size=5, linewidth=0.6,
                   edgecolor="black", color="white", ax=ax)
     ax.set_ylim(0, max(0.2, d.weighted_NSTI.max() * 1.15))
