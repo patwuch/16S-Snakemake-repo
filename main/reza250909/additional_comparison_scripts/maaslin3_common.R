@@ -1,0 +1,71 @@
+# Shared by run_maaslin3_rows.R and check_maaslin3_median.R: inputs, the
+# feature filter, the report's five rows and one MaAsLin3 1.5.7 fit per pair
+# of reference levels. The rows and fits match run_picrust2_maaslin3.R.
+# The caller sets THIS_DIR and `args` before sourcing.
+suppressPackageStartupMessages(library(maaslin3))
+stopifnot(packageVersion("maaslin3") == "1.5.7")
+
+OUT_DIR <- file.path(dirname(THIS_DIR), "comparison-Diet-x-Radiation-factorial")
+MA_DIR  <- file.path(OUT_DIR, "tables", "maaslin3")
+FIG_DIR <- file.path(OUT_DIR, "figures")
+ALPHA <- 0.05
+DIETS <- c("Control", "SCFAs"); RADS <- c("None", "IR")
+FORMULA <- "~ Diet * Radiation + log10_reads"
+
+# >= 4 of 32 is MaAsLin3's min_prevalence 0.10. Applied once to the full data,
+# so leave-one-out refits keep the same features.
+i <- match("--min-samples", args)
+MIN_SAMPLES <- if (is.na(i)) 4L else as.integer(args[i + 1L])
+TAG <- sprintf("Greengenes2_min%d", MIN_SAMPLES)
+
+counts <- read.delim(file.path(MA_DIR, "counts_Greengenes2.tsv"), row.names = 1, check.names = FALSE)
+meta   <- read.delim(file.path(MA_DIR, "metadata.tsv"), row.names = 1, stringsAsFactors = FALSE)
+stopifnot(identical(rownames(counts), rownames(meta)),
+          identical(as.vector(table(factor(meta$Diet, DIETS), factor(meta$Radiation, RADS))), rep(8L, 4)))
+counts <- counts[, colSums(counts > 0) >= MIN_SAMPLES, drop = FALSE]
+n <- nrow(counts)
+message(sprintf("[maaslin3] %s: %d features x %d samples", TAG, ncol(counts), n))
+
+# Each report row is the direct coefficient `term` of the fit whose reference
+# levels are "<diet> <radiation>"; `cells` are the groups it compares.
+row_ <- function(row, fit, term, cells) list(row = row, stratum = "", family = row, fit = fit, term = term,
+                                             cells = cells)
+cl <- function(d, r) expand.grid(x = d, y = r, stringsAsFactors = FALSE)
+ROWS <- list(row_("SCFAs vs Control", "Control None", "DietSCFAs", cl(DIETS, "None")),
+             row_("SCFAs+IR vs IR", "Control IR", "DietSCFAs", cl(DIETS, "IR")),
+             row_("IR vs Control", "Control None", "RadiationIR", cl("Control", RADS)),
+             row_("SCFAs+IR vs SCFAs", "SCFAs None", "RadiationIR", cl("SCFAs", RADS)),
+             row_("Interaction: SCFAs vs Control", "Control None", "DietSCFAs:RadiationIR", cl(DIETS, RADS)))
+FITS <- unique(vapply(ROWS, `[[`, "", "fit"))
+ROWTAB <- do.call(rbind, lapply(ROWS, function(r) data.frame(row = r$row, stratum = r$stratum, family = r$family,
+                                                             fit = r$fit, term = r$term, stringsAsFactors = FALSE)))
+cell_of <- function(rows) paste(meta$Diet[rows], meta$Radiation[rows])
+
+fit <- function(fit_name, rows = seq_len(n), median_comparison = FALSE, abundance_only = FALSE) {
+  set.seed(1)
+  ref <- strsplit(fit_name, " ")[[1]]
+  m <- meta[rows, , drop = FALSE]
+  m$Diet <- relevel(factor(m$Diet, levels = DIETS), ref[1])
+  m$Radiation <- relevel(factor(m$Radiation, levels = RADS), ref[2])
+  r <- maaslin3(input_data = counts[rows, , drop = FALSE], input_metadata = m, output = tempfile(),
+                formula = FORMULA, min_prevalence = 0, normalization = "TSS", transform = "LOG",
+                evaluate_only = if (abundance_only) "abundance" else NULL,
+                median_comparison_abundance = median_comparison, median_comparison_prevalence = FALSE,
+                augment = TRUE, warn_prevalence = !abundance_only, cores = 1,
+                plot_summary_plot = FALSE, plot_associations = FALSE, save_models = FALSE, verbosity = "ERROR")
+  list(abundance = r$fit_data_abundance$results, prevalence = r$fit_data_prevalence$results)
+}
+
+# TRUE where `feature` is present in every cell row k compares, among `rows`.
+# The abundance model is fitted on present samples only, so a feature absent
+# from a whole cell makes it rank deficient: R drops an aliased column and the
+# remaining coefficients silently change meaning.
+identifiable <- function(feature, k, rows) {
+  cl <- ROWS[[k]]$cells
+  ok <- rep(TRUE, length(feature))
+  for (j in seq_len(nrow(cl))) {
+    s <- rows[cell_of(rows) == paste(cl$x[j], cl$y[j])]
+    ok <- ok & colSums(counts[s, feature, drop = FALSE] > 0) > 0
+  }
+  ok
+}
