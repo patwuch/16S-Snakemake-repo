@@ -20,7 +20,7 @@ See [`quickstart.md`](quickstart.md) for metadata.tsv column-naming rules and ge
 ## Currently Supported Taxonomic/Phylogeny Databases
 
 * Greengenes2
-* SILVA 138 (see [`pipeline_overview.md`](pipeline_overview.md) Stage 3c for its SEPP phylogeny caveats)
+* SILVA 138 (see [`pipeline_overview.md`](pipeline_overview.md) Stage 3b for its SEPP phylogeny caveats)
 
 ## Currently Supported Functional Prediction Database
 
@@ -29,7 +29,8 @@ See [`quickstart.md`](quickstart.md) for metadata.tsv column-naming rules and ge
 ## Currently Supported Differential Analysis Methods
 
 * LEfSe (the original Huttenhower implementation — see [`pipeline_overview.md`](pipeline_overview.md) Stage 5)
-* ANCOMBC2
+
+ANCOM-BC2 is not part of the standard pipeline: its value lies in modelling a study's design, so it runs in per-study scripts under `main/<study>/additional_comparison_scripts/`.
 
 ## Naming Convention Guide
 
@@ -37,7 +38,7 @@ It is suggested to keep your naming convention simple, i.e. use hyphens for QIIM
 
 ## Environment Guide
 
-This is the Linux repository. Per-rule software (QIIME2, PICRUSt2, LEfSe, ANCOMBC2, the report compiler) runs inside Apptainer containers rather than ad hoc conda environments, so a run is reproducible regardless of what happens to be installed on the host.
+This is the Linux repository. Per-rule software (QIIME2, PICRUSt2, LEfSe, the report compiler) runs inside Apptainer containers rather than ad hoc conda environments, so a run is reproducible regardless of what happens to be installed on the host.
 
 **Running the pipeline**: activate an environment with Snakemake and Apptainer installed (`environment.yml` defines this — e.g. `conda env create -f environment.yml && conda activate smk9`), then invoke Snakemake with `--sdm apptainer`:
 

@@ -39,7 +39,6 @@ SILVA138_SKIP_PHYLOGENY: false
 # LEfSe uses the original Huttenhower (2011) python implementation
 RUN_LEFSE_HUTTENHOWER: true
 
-RUN_ANCOMBC2: TRUE
 # For functional prediction, the pipeline uses PiCRUST2 (Douglas et al. 2020)
 RUN_PICRUST2: false
 
@@ -64,7 +63,7 @@ DESIGN:
   # ------------------------------------------
   # Model shape (fixed, not configurable)
   # ------------------------------------------
-  # Every ANCOM-BC2 run this pipeline launches is a FLAT fit: one FACTORS column,
+  # Every analysis this pipeline runs treats each FACTORS column on its own, as
   # flat categorical levels, one run per column. There is no key here for
   # interactions, covariate adjustment or random effects, and declaring the old
   # DESIGN.INTERACTIONS / DESIGN.COVARIATES keys is now a hard config error.

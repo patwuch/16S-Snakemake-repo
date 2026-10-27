@@ -96,11 +96,7 @@ Classifier files live in `REF_DIR/{database}/`. This produces a taxonomy artifac
 
 That container also rejects artifacts written by the modern one, so `Silva138_reimport_rep_seqs_legacy` first re-wraps `rep-seqs-analysis.qza` into a 2021.4-native artifact (`rep-seqs-analysis-legacy.qza`) by pulling `dna-sequences.fasta` out of the zip with stdlib `zipfile` and re-importing it. Only the reads need this round trip; the classifier already loads natively. Greengenes2 and SILVA 138 full-length classify in the normal container.
 
-### 3b. Genus-Level Collapse (V3V4 NGS only)
-
-For V3V4 NGS data, the feature table is additionally collapsed to genus level (rank 6) using `qiime taxa collapse`. This produces `{db}-genus-table-collapsed.qza` and a corresponding exported `.biom` file, one per database (`{db}-study-seqs-genus.biom`). Differential abundance analyses in Stage 5 receive this genus-collapsed table rather than the ASV-level table, as genus is the finest reliable taxonomic resolution for the V3V4 region. Full-length TGS data passes the ASV-level table to Stage 5 instead — but note that two of the three DA methods then collapse it themselves, per database, before testing (see Stage 5).
-
-### 3c. Phylogeny — Backbone Mapping
+### 3b. Phylogeny — Backbone Mapping
 
 ASVs are mapped onto the full-length backbone sequence database using `qiime greengenes2 non-v4-16s` (or the equivalent for SILVA138). This produces:
 
@@ -112,7 +108,7 @@ These are the inputs for phylogenetic diversity analyses. The actual **phylogene
 - The rule logs a compact one-line-per-minute progress summary (subset counts, resource usage) via `scripts/sepp_monitor_lib.sh`; a job already in flight can also be attached to from any terminal with `scripts/watch_sepp.sh`.
 - Setting `SILVA138_SKIP_PHYLOGENY: true` in the config skips building this tree entirely. When set, Silva138 is dropped from `phylogenetic_reference_db` (a narrower list than `reference_db`) and every target that needs a tree — Faith's PD, UniFrac, their PCoA, and the per-DB rarefaction depth — is built without it; taxonomy, taxa barplots, and non-phylogenetic diversity metrics are unaffected.
 
-### 3d. Taxa Barplot Visualisations
+### 3c. Taxa Barplot Visualisations
 
 - **QIIME interactive barplot** (`.qzv`) — generated natively in QIIME2 from the filtered ASV table.
 - **Custom static barplots** (`.svg` + `.png`) — generated per taxonomic level (Kingdom → Species) and per grouping axis using `plot_taxa_barplot_levels.py`, showing the top 20 taxa per group.
@@ -124,7 +120,7 @@ For every taxonomic level × grouping axis combination, **two versions are alway
 
 (Each version is written as both `.svg` and `.png`, following the pipeline-wide plot output convention.)
 
-### 3e. Artifact Export
+### 3d. Artifact Export
 
 The feature table (`.biom`), representative sequences (`.fna`), and taxonomy assignments (`.tsv`) are exported from QIIME2 for use in downstream non-QIIME tools (differential abundance, PICRUSt2).
 
@@ -146,7 +142,7 @@ Each reference database's backbone-mapped table (`{db}-table.qza`) is rarefied i
 
 ### 4b. Alpha Diversity
 
-Five within-sample diversity metrics are calculated for each reference database — four non-phylogenetic, plus Faith's PD for databases in `phylogenetic_reference_db` (see Silva138's SEPP exception in 3c):
+Five within-sample diversity metrics are calculated for each reference database — four non-phylogenetic, plus Faith's PD for databases in `phylogenetic_reference_db` (see Silva138's SEPP exception in 3b):
 
 | Metric            | What it measures                           | Phylogenetic? |
 | ----------------- | ------------------------------------------ | ------------- |
@@ -184,50 +180,28 @@ Results are saved to `{db}_permanova_permdisp.tsv`.
 
 ## Stage 5 — Differential Abundance Analysis
 
-**Rules:** `LEfSe.smk`, `ANCOMBC2.smk`
+**Rules:** `LEfSe.smk`
+
+ANCOM-BC2 is not run here. Its strength is modelling a study's design (reference levels, covariates, pairing, structural zeros by group), which a project-agnostic flat fit cannot do, and its calls from such a fit were easy to misread. Studies that need it fit it in their own scripts under `main/<study>/additional_comparison_scripts/`.
 
 ### Taxonomic resolution of the input table
 
-Both methods start from the exported `.biom` feature table and taxonomy TSV. Which table that is depends on the region: V3V4 NGS gets the genus-collapsed table from Stage 3b, full-length TGS gets the ASV-level table.
-
-Both methods then collapse further, **by database rather than by sequence type**, because resolution is a property of the classifier: Greengenes2's full-length classifier resolves real species, while Silva138's species field is empty for every ASV, so collapsing past genus would only add noise. Collapsing also makes the methods comparable in the shared `.res` renderer, whose nodes are taxonomy strings — uncollapsed ASVs sharing a taxonomy merge onto one node no matter how many were significant.
-
-| Method                | Collapse applied inside the method                          |
-| --------------------- | ----------------------------------------------------------- |
-| `lefse_Huttenhower` | Silva138 → rank 6 (genus); Greengenes2 → rank 7 (species) |
-| `ancombc2`          | same                                                        |
-
-So on full-length TGS data both operate at genus/species level, not ASV level.
+LEfSe collapses **by database, and for Greengenes2 also by amplicon length**, because resolution is a property of the classifier and the read: Greengenes2's full-length classifier resolves real species, while Silva138's species field is empty for every ASV, so collapsing past genus would only add noise. On V3V4 NGS data the amplicon is too short for a species call to be trusted, so Greengenes2 stops at genus too: Silva138 → rank 6 (genus); Greengenes2 → rank 7 (species) on full-length data, rank 6 on V3V4. Collapsing also suits the `.res` renderer, whose nodes are taxonomy strings — uncollapsed ASVs sharing a taxonomy merge onto one node no matter how many were significant. So LEfSe never operates at ASV level.
 
 ### LEfSe (Linear Discriminant Analysis Effect Size)
 
 LEfSe is run with the original Huttenhower implementation, switchable via config (`RUN_LEFSE_HUTTENHOWER`) and producing its outputs as both `.svg` and `.png` when enabled.
 
-Each method is split into a `_run` rule and a `_plot` rule. The `_run` rule executes that method's own statistics in that method's own environment and writes a **`.res` file**; the `_plot` rule renders it. The `.res` file is the only thing that crosses between them, so re-plotting never re-runs the statistics.
+The method is split into a `_run` rule and a `_plot` rule. The `_run` rule executes the statistics in their own environment and writes a **`.res` file**; the `_plot` rule renders it. The `.res` file is the only thing that crosses between them, so re-plotting never re-runs the statistics.
 
-A `.res` file is a prefix-closed table over the taxonomy tree, one TAB-separated row per node: dot-separated lineage, `log10` of the largest per-class mean abundance, and then the enrichment class, LDA score and p-value for nodes the method called significant. Because every method emits this one shape, they are all rendered by the **same two drawing scripts** (`scripts/plotters/effectsize_barplot.py` and `scripts/plotters/cladogram.py`) via the shared `scripts/effectsize_cladogram_render.py`, so the figures are directly comparable across methods rather than each library drawing in its own idiom. Those scripts and the renderer are named for the plots they produce, not for LEfSe: the format originated there, but ANCOM-BC2 renders through the same path. Group colors and legend order come from `GROUP_COLORS` and are pinned to the full configured group universe, so a group keeps its color even in comparisons it does not appear in.
+A `.res` file is a prefix-closed table over the taxonomy tree, one TAB-separated row per node: dot-separated lineage, `log10` of the largest per-class mean abundance, and then the enrichment class, LDA score and p-value for nodes the method called significant. This shape is rendered by **two drawing scripts** (`scripts/plotters/effectsize_barplot.py` and `scripts/plotters/cladogram.py`) via the shared `scripts/effectsize_cladogram_render.py`. Those scripts and the renderer are named for the plots they produce, not for LEfSe: the format originated there, and per-study scripts (e.g. a study's own ANCOM-BC2 fit) render through the same path. Group colors and legend order come from `GROUP_COLORS` and are pinned to the full configured group universe, so a group keeps its color even in comparisons it does not appear in.
 
 When a method finds nothing significant, the upstream behaviour is preserved: the LDA bar chart is written as an empty file and the cladogram renders the uncoloured background tree.
 
-**`lefse_Huttenhower` — vanilla Python-style Huttenhower LEfSe** (`run_lefse_Huttenhower.py`, toggled by `RUN_LEFSE_HUTTENHOWER`, default `true`) — the original LEfSe implementation, which tests every taxonomic rank. Its results file is in `.res` format but carries a `.txt` extension (`lefse_Huttenhower_results_by_{group}.txt`), unlike the other two methods, which use `.res`. For each grouping axis it outputs:
+**`lefse_Huttenhower` — vanilla Python-style Huttenhower LEfSe** (`run_lefse_Huttenhower.py`, toggled by `RUN_LEFSE_HUTTENHOWER`, default `true`) — the original LEfSe implementation, which tests every taxonomic rank. Its results file is in `.res` format but carries a `.txt` extension (`lefse_Huttenhower_results_by_{group}.txt`). For each grouping axis it outputs:
 
 - **`lefse_Huttenhower_LDA_by_{group}`** — LDA bar chart of ranked differentially abundant taxa.
 - **`lefse_Huttenhower_Cladogram_by_{group}`** — cladogram of the enriched taxa.
-
-### ANCOMBC2
-
-Fits one compositionality-corrected model per grouping axis (`fix_formula` = the grouping column plus any configured covariates/interactions from `DESIGN`), toggled by `RUN_ANCOMBC2`. Which group a taxon is enriched in, and its effect size, come from the strongest pairwise contrast that clears mdFDR correction (Holm, bootstrap) — this correction is what distinguishes it from LEfSe's uncorrected pairwise tests.
-
-How a taxon qualifies depends on how many levels the grouping axis has:
-
-- **Three or more levels:** the global omnibus test runs, and a taxon must clear its FDR-adjusted q-value before any contrast is considered. Omnibus-significant taxa whose pairwise family localises nothing are dropped, since there is no single group to attribute them to.
-- **Two levels:** `ancombc2()` deactivates the multi-group comparisons and returns no omnibus table, so there is no gate to apply. Every tested taxon is considered and the pairwise q-values are the only FDR control in play. 
-
-Because a metadata column name cannot contain a space in ANCOM-BC2's `fix_formula` (it resolves variable names by parsing that string, and does not strip backticks), `run_ancombc2.R` builds a spaceless alias column for every name entering the model and reads the term names off the alias. Group *values* are unaffected and keep their spaces throughout.
-
-`ancombc2_run` writes a results `.tsv` and a `.res`. The `.tsv` is the raw `ancombc2()` table, kept for inspection; only the `.res` is plotted.
-
-- **`ancombc2_effectsize_cladogram_plot`** — the FDR-controlled hits rendered through the shared `.res` renderer (`ANCOMBC2_EffectSize_by_{group}`, `ANCOMBC2_Cladogram_by_{group}`), so ANCOM-BC2's stricter hit list can be visually compared against LEfSe's more permissive one in the same chart format. The bars are `|log2FC| (mdFDR-controlled)`, not LDA scores, which is why neither the rule nor the file says LDA. `ancombc2()` returns a natural-log fold change, so `run_ancombc2.R` divides by `log(2)` before writing the `.res`. Bar lengths are therefore not comparable with the LEfSe charts, whose scores are `log10(1 + effect)` over CPM-normalised abundances; only the taxa and their direction are.
 
 ---
 
@@ -261,7 +235,7 @@ PICRUSt2's own `add_descriptions.py` CLI tool (bundled in the PICRUSt2 environme
 
 **Rule:** `compile_visualisations_pdf`
 
-After all plots are generated, the pipeline compiles every visualisation into a single PDF report (`visualisations_report.pdf`) in the study directory. It takes whatever Stage 3-6 actually produced: taxa barplots, the per-metric alpha and beta diversity plots, every enabled differential abundance method (LEfSe **and** ANCOM-BC2), and the PICRUSt2 heatmaps. PERMANOVA/PermDisp results and rarefaction depth information are embedded as summary tables.
+After all plots are generated, the pipeline compiles every visualisation into a single PDF report (`visualisations_report.pdf`) in the study directory. It takes whatever Stage 3-6 actually produced: taxa barplots, the per-metric alpha and beta diversity plots, the LEfSe plots when enabled, and the PICRUSt2 heatmaps. PERMANOVA/PermDisp results and rarefaction depth information are embedded as summary tables.
 
 ---
 
@@ -272,9 +246,9 @@ After all plots are generated, the pipeline compiles every visualisation into a 
 | 0 — Setup           | Directory structure, validated config                                                                                                                                                                                                                                                         |
 | 1 — Manifest        | `manifest.tsv`                                                                                                                                                                                                                                                                              |
 | 2 — Denoising       | `table-dada2.qza`, `rep-seqs-dada2.qza`, `dada2-stats.qzv`, `table-analysis.qza`, `rep-seqs-analysis.qza`                                                                                                                                                                           |
-| 3 — Taxonomy        | `{db}-taxonomy.qza`, `{db}-taxa-bar-plots.qzv`, `taxa_barplot_*_{samples,groups}.{svg,png}`; V3V4 NGS also `{db}-study-seqs-genus.biom`                                                                                                                                               |
+| 3 — Taxonomy        | `{db}-taxonomy.qza`, `{db}-taxa-bar-plots.qzv`, `taxa_barplot_*_{samples,groups}.{svg,png}`                                                                                                                                               |
 | 4 — Diversity       | Alpha/beta plots (`.svg` + `.png`), `{db}_permanova_permdisp.tsv`; two rarefied tables: `table-analysis-rarefied.qza` (base) and `{db}-table-rarefied.qza` (per-DB)                                                                                                                 |
-| 5 — Diff. Abundance | LEfSe LDA + cladogram plots (`.svg` + `.png`) from the vanilla implementation (`lefse_Huttenhower_*`); ANCOMBC2 effect-size + cladogram pair rendered through the same shared renderer (`ANCOMBC2_EffectSize_by_*`, `ANCOMBC2_Cladogram_by_*`, log2), plus the raw results `.tsv` |
+| 5 — Diff. Abundance | LEfSe LDA + cladogram plots (`.svg` + `.png`) from the vanilla implementation (`lefse_Huttenhower_*`)                                                                                                                                              |
 | 6 — Function        | PICRUSt2 KO/EC/pathway TSVs,`picrust2_KO`/`picrust2_EC`/`picrust2_MetaCyc` heatmaps (`.svg` + `.png`)                                                                                                                                                                               |
 | 7 — Report          | `visualisations_report.pdf`                                                                                                                                                                                                                                                                 |
 

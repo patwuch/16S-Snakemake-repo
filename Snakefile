@@ -18,11 +18,8 @@ def reject_whitespace(value, what):
     `mkdir -p {params.outdir}` in rules/NGS.smk and rules/TGS.smk, among others
     -- where a space silently splits one path into two arguments.
 
-    Grouping COLUMN names are deliberately not restricted, even
-    though ANCOMBC::ancombc2() cannot parse a spaced name out of its
-    `fix_formula` string. scripts/run_ancombc2.R gives the model a spaceless
-    alias column instead, and every other consumer takes such a name as-is:
-    snakemake round-trips it through wildcards, and no shell rule ever carries a
+    Grouping COLUMN names are deliberately not restricted: snakemake
+    round-trips such a name through wildcards, and no shell rule ever carries a
     grouping column in its paths.
 
     Group VALUES are not restricted either -- "Low tumor volume" survives end to
@@ -92,8 +89,8 @@ def validate_standard_design(config):
     if unsupported:
         raise ValueError(
             f"DESIGN.{', DESIGN.'.join(unsupported)} is set, and this pipeline does "
-            "not model it. Every run is a flat ANCOM-BC2 on a single DESIGN.FACTORS "
-            "column. Formula-based modelling (interactions, covariate adjustment, "
+            "not model it. Every analysis treats one DESIGN.FACTORS column at a "
+            "time as a flat categorical. Formula-based modelling (interactions, covariate adjustment, "
             "random effects) belongs in a per-study script under "
             "main/<study>/additional_comparison_scripts/, where the modelling "
             "choice sits next to the reasoning for it."
@@ -181,30 +178,28 @@ if ANALYSIS_MODE == "standard":
     if DESIGN_INFO.get("factors"):
         # Automatically add LEfSe for each factor if desired
         DA_METHODS.append("LEfSe_per_factor")
-        # Actual gating on RUN_ANCOMBC2 happens per-output below, same pattern
-        # LEfSe uses for its two implementation toggles.
-        DA_METHODS.append("ANCOMBC2")
 
 
 # ==============================
 # Per-implementation toggles (LEfSe, PICRUSt2)
 # ==============================
 # Each analysis is switched independently; see pipeline_overview.md Stage 5 for
-# what each one produces. All three default to True (every method always ran
+# what each one produces. Both default to True (every method always ran
 # unconditionally before these toggles existed) so configs that predate this
 # option keep running every method unless they opt out.
 #
-# RUN_LEFSE_MICROBIOMEMARKER is gone: the microbiomeMarker LEfSe reimplementation
-# was removed because, unlike ANCOM-BC2, it added little over the Huttenhower
-# original it reimplements. A leftover RUN_LEFSE_MICROBIOMEMARKER key in an old
-# config is simply ignored.
+# Two DA methods are gone, and a leftover toggle for either in an old config is
+# simply ignored:
+#   RUN_LEFSE_MICROBIOMEMARKER - the microbiomeMarker LEfSe reimplementation added
+#     little over the Huttenhower original it reimplements.
+#   RUN_ANCOMBC2 (and the ANCOMBC2_* parameters) - ANCOM-BC2's strength is
+#     modelling a study's design, which a project-agnostic flat fit cannot do;
+#     its calls here were easy to misread. It runs in per-study scripts instead.
 run_lefse_huttenhower      = config.get("RUN_LEFSE_HUTTENHOWER", True)
-run_ancombc2               = config.get("RUN_ANCOMBC2", True)
 run_picrust2                = config.get("RUN_PICRUST2", True)
 
 _enabled_da_methods = [name for name, on in [
     ("lefse_Huttenhower", run_lefse_huttenhower),
-    ("ANCOMBC2", run_ancombc2),
 ] if on]
 log(f"[MAIN] Differential abundance methods to be run: {', '.join(_enabled_da_methods) if _enabled_da_methods else 'none'}")
 log(f"[MAIN] PICRUSt2: {'enabled' if run_picrust2 else 'disabled'}")
@@ -228,14 +223,6 @@ top_n_picrust                = config.get("TOP_N_PICRUST", 30)
 lefse_lda_cutoff             = config.get("LEFSE_LDA_CUTOFF", 3.0)
 lefse_kw_cutoff              = config.get("LEFSE_KW_CUTOFF", 0.05)
 lefse_wilcoxon_cutoff        = config.get("LEFSE_WILCOXON_CUTOFF", 0.05)
-ancombc2_min_sample_presence = config.get("ANCOMBC2_MIN_SAMPLE_PRESENCE", 3)
-ancombc2_prv_cut             = config.get("ANCOMBC2_PRV_CUT", 0.28)
-ancombc2_lib_cut             = config.get("ANCOMBC2_LIB_CUT", 5000)
-ancombc2_p_adj_method        = config.get("ANCOMBC2_P_ADJ_METHOD", "BH")
-ancombc2_alpha               = config.get("ANCOMBC2_ALPHA", 0.05)
-ancombc2_pseudo_sens         = config.get("ANCOMBC2_PSEUDO_SENS", True)
-ancombc2_struc_zero          = config.get("ANCOMBC2_STRUC_ZERO", True)
-ancombc2_neg_lb              = config.get("ANCOMBC2_NEG_LB", True)
 
 # ==============================
 # Summary
@@ -515,13 +502,6 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
 
-        elif method == "ANCOMBC2" and run_ancombc2:
-            for group in DESIGN_INFO.get("factors", []):
-                differential_abundance_outputs.extend([
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.svg"),
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.svg"),
-                ])
-
 
 differential_abundance_png_outputs = []
 for db in reference_db:
@@ -539,14 +519,6 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.png"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
-        elif method == "ANCOMBC2" and run_ancombc2:
-            for group in DESIGN_INFO.get("factors", []):
-                differential_abundance_png_outputs.extend([
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.png"),
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_EffectSize_by_{group}.svg"),
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.png"),
-                    str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/ANCOMBC2_Cladogram_by_{group}.svg"),
-                ])
 
 picrust2_outputs = [
     str(STUDY_DIR / "picrust2_described" / "KO_metagenome_unstrat_described.tsv.gz"),
@@ -892,24 +864,10 @@ include: "rules/diversity.smk"
 # STEP 5 - Differential Abundance Analyses
 ##############################################
 
-# For V3V4 NGS, ANCOM-BC2 uses Silva138's genus-collapsed table but retains the
-# Greengenes2 table for its species-level collapse. Diversity analyses and PICRUSt2
-# are unaffected — they continue to use ASV-level data.
-DA_FEATURE_TABLE = lambda wc: (
-    TABLES_DIR / f"{wc.db}-study-seqs-genus.biom"
-    if region == "region_V3V4" and wc.db == "Silva138"
-    else TABLES_DIR / "study-seqs.biom"
-)
-DA_TAXONOMY = lambda wc: (
-    TABLES_DIR / "exported-taxonomy" / f"{wc.db}_genus_taxonomy.tsv"
-    if region == "region_V3V4" and wc.db == "Silva138"
-    else TABLES_DIR / "exported-taxonomy" / f"{wc.db}_taxonomy.tsv"
-)
 DA_QIIME_TABLE = QIIME_DIR / "table-analysis.qza"
 DA_QIIME_TAXA  = QIIME_DIR / "{db}-taxonomy.qza"
 
 include: "rules/LEfSe.smk"
-include: "rules/ANCOMBC2.smk"
 
 # ##############################################
 # #STEP 6 - Functional Prediction with PICRUSt2

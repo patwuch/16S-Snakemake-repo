@@ -1,4 +1,5 @@
-# Writer for `.res` files, sourced by run_ancombc2.R. The format originates with
+# Writer for `.res` files, sourced by the per-study ANCOM-BC2 scripts under
+# main/<study>/additional_comparison_scripts/. The format originates with
 # LEfSe but is not owned by it: it is this pipeline's shared interface to the
 # effect-size barplot and cladogram renderer. (lefse_Huttenhower writes its own
 # `.res` directly from the upstream LEfSe scripts and does not come through here.)
