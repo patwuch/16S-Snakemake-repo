@@ -18,16 +18,18 @@ kw_cutoff       = snakemake.params.kw_cutoff
 wilcoxon_cutoff = snakemake.params.wilcoxon_cutoff
 colors_map      = snakemake.params.colors
 db              = snakemake.wildcards.db
+region          = snakemake.params.region
 
 # ── Per-database taxonomic resolution ──────────────────────────────────────
 # Greengenes2's full-length 16S classifier resolves real species-level calls
 # (e.g. "s__Duncaniella muris"); Silva138's species field is empty for every
-# ASV, so collapsing past genus would only add noise. `collapse_level` is the
-# QIIME 2 `taxa collapse` rank (6 = genus, 7 = species) used when building the
-# LEfSe input table.
+# ASV, so collapsing past genus would only add noise. A V3V4 amplicon is too
+# short for a species call to be trusted, so Greengenes2 stops at genus there
+# too. `collapse_level` is the QIIME 2 `taxa collapse` rank (6 = genus,
+# 7 = species) used when building the LEfSe input table.
 COLLAPSE_LEVEL = {
     "Silva138":    6,   # genus
-    "Greengenes2": 7,   # species
+    "Greengenes2": 7 if region == "full_length" else 6,   # species on full length only
 }
 if db not in COLLAPSE_LEVEL:
     raise ValueError(f"No LEfSe collapse level for db={db!r}. Known: {sorted(COLLAPSE_LEVEL)}")
@@ -44,8 +46,7 @@ if not CONDA_PYTHON.exists():
     )
 
 # ── Resolve lefse/ folder relative to this script ────────────────────────────
-SCRIPT_DIR = Path(__file__).resolve().parent
-LEFSE_DIR  = SCRIPT_DIR / "lefse"
+LEFSE_DIR = Path(snakemake.scriptdir) / "lefse"
 
 def lefse(name: str) -> str:
     p = LEFSE_DIR / name

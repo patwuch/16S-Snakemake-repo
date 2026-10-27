@@ -10,6 +10,7 @@ rule lefse_Huttenhower_run:
         lefse_Huttenhower_results = TMP_DIR / "{db}/lefse_Huttenhower_results_by_{group_col}.txt"
     params:
         group_col       = "{group_col}",
+        region          = region,
         lda_cutoff      = lefse_lda_cutoff,
         kw_cutoff       = lefse_kw_cutoff,
         wilcoxon_cutoff = lefse_wilcoxon_cutoff,
