@@ -1,0 +1,19 @@
+Bootstrap: localimage
+From: containers/maaslin3-env.pre-limma.sif
+
+# limma added on top of the 2026-09-30 maaslin3-env image (kept as
+# maaslin3-env.pre-limma.sif) without re-solving the environment: a fresh build
+# of maaslin3-env.def would pull newer versions of every unpinned package.
+# --freeze-installed keeps every existing package at its version. Built as
+# containers/maaslin3-env.sif on 2026-10-23.
+
+%post
+    /opt/conda/bin/conda install -y -p /opt/conda-env -c conda-forge -c bioconda --freeze-installed bioconductor-limma
+    /opt/conda/bin/conda clean -afy
+    /opt/conda-env/bin/Rscript -e 'stopifnot(packageVersion("maaslin3") == "1.5.7"); library(maaslin3); library(diptest); library(limma)'
+
+%environment
+    export PATH=/opt/conda-env/bin:$PATH
+
+%runscript
+    exec "$@"

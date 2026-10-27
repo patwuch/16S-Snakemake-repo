@@ -27,3 +27,6 @@ dependencies:
   - bioconductor-biocgenerics
   # Hartigan dip test for the median check (check_maaslin3_median.R)
   - r-diptest
+  # Moderated-variance check of the MaAsLin3 abundance calls (run_limma_rows.R).
+  # The current image adds it on top of the old one: see maaslin3-env.limma-layer.def.
+  - bioconductor-limma
