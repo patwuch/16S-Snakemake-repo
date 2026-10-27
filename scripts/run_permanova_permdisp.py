@@ -14,7 +14,8 @@ import sys
 # vector (both points are equidistant from their midpoint), so the F statistic
 # is undefined and scipy emits ConstantInputWarning; PERMANOVA power for such a
 # group is also negligible. Groups smaller than this are dropped before testing.
-MIN_GROUP_SIZE = 3
+MIN_GROUP_SIZE_PERMANOVA = 2
+MIN_GROUP_SIZE_PERMDISP = 3
 
 
 # ------------------------------
@@ -24,6 +25,12 @@ def process_column(args):
     name, dm, meta, col = args
     results = []
 
+    # Ensure the distance matrix is C-contiguous for scikit-bio.
+    dm = DistanceMatrix(
+        np.ascontiguousarray(dm.data),
+        ids=dm.ids
+    )
+
     meta_sub = meta[[col]].dropna()
     common = meta_sub.index.intersection(dm.ids)
     if len(common) < 2:
@@ -32,11 +39,13 @@ def process_column(args):
     meta_sub = meta_sub.loc[common]
 
     counts = meta_sub[col].value_counts()
-    small = counts.index[counts < MIN_GROUP_SIZE].tolist()
+    small = counts.index[
+        counts < MIN_GROUP_SIZE_PERMANOVA
+    ].tolist()
     if small:
         print(
             f"[PERMANOVA] {name} / {col}: dropping group(s) with "
-            f"< {MIN_GROUP_SIZE} samples: {small}",
+            f"< {MIN_GROUP_SIZE_PERMANOVA} samples: {small}",
             file=sys.stderr,
         )
         meta_sub = meta_sub[~meta_sub[col].isin(small)]
@@ -45,7 +54,11 @@ def process_column(args):
     if n_groups < 2 or n_groups >= len(meta_sub):
         return results
 
-    dm_sub = dm.filter(meta_sub.index)
+    dm_filtered = dm.filter(meta_sub.index)
+    dm_sub = DistanceMatrix(
+        np.ascontiguousarray(dm_filtered.data),
+        ids=dm_filtered.ids
+    )
 
     # Omnibus PERMANOVA + betadisper
     perm = permanova(dm_sub, meta_sub[col], permutations=9999)
@@ -55,20 +68,33 @@ def process_column(args):
         **perm.to_dict()
     })
 
-    disp = permdisp(dm_sub, meta_sub[col], permutations=9999)
-    results.append({
-        "distance": name, "comparison": col,
-        "scope": "global", "pair": None, "test": "betadisper",
-        **disp.to_dict()
-    })
+    counts = meta_sub[col].value_counts()
+    if (counts < MIN_GROUP_SIZE_PERMDISP).any():
+        print(
+            f"[PERMDISP] {name} / {col}: skipped because at least one "
+            f"group has fewer than {MIN_GROUP_SIZE_PERMDISP} samples.",
+            file=sys.stderr,
+        )
+    else:
+        disp = permdisp(dm_sub, meta_sub[col], permutations=9999)
+        results.append({
+            "distance": name, "comparison": col,
+            "scope": "global", "pair": None, "test": "betadisper",
+            **disp.to_dict()
+        })
 
     # Pairwise PERMANOVA + betadisper
     groups = sorted(meta_sub[col].unique())
     for g1, g2 in combinations(groups, 2):
         meta_pair = meta_sub[meta_sub[col].isin([g1, g2])]
-        dm_pair = dm_sub.filter(meta_pair.index)
+        dm_pair_filtered = dm_sub.filter(meta_pair.index)
+        dm_pair = DistanceMatrix(
+            np.ascontiguousarray(dm_pair_filtered.data),
+            ids=dm_pair_filtered.ids
+        )
 
-        if (meta_pair[col].value_counts() < MIN_GROUP_SIZE).any():
+        pair_counts = meta_pair[col].value_counts()
+        if (pair_counts < MIN_GROUP_SIZE_PERMANOVA).any():
             continue
 
         pair_label = f"{g1} vs {g2}"
@@ -80,12 +106,23 @@ def process_column(args):
             **perm_pair.to_dict()
         })
 
-        disp_pair = permdisp(dm_pair, meta_pair[col], permutations=9999)
-        results.append({
-            "distance": name, "comparison": col,
-            "scope": "pairwise", "pair": pair_label, "test": "betadisper",
-            **disp_pair.to_dict()
-        })
+        if (pair_counts < MIN_GROUP_SIZE_PERMDISP).any():
+            print(
+                f"[PERMDISP] {name} / {col} / {pair_label}: skipped "
+                f"because a group has fewer than "
+                f"{MIN_GROUP_SIZE_PERMDISP} samples.",
+                file=sys.stderr,
+            )
+        else:
+            disp_pair = permdisp(
+                dm_pair, meta_pair[col], permutations=9999
+            )
+            results.append({
+                "distance": name, "comparison": col,
+                "scope": "pairwise", "pair": pair_label,
+                "test": "betadisper",
+                **disp_pair.to_dict()
+            })
 
     return results
 
