@@ -2,8 +2,9 @@
 """Presence/absence tests for the report's structural-zero taxa.
 
 A structural zero, in ANCOM-BC2's sense, is a taxon with zero counts in every
-sample of a group; verify_structural_zeros.R checks that the report's
-<STEM>_untestable_absent_from_a_cell.tsv is exactly ancombc2's own list. The
+sample of a group; verify_structural_zeros.R (removed 2026-10-06, in git history)
+checked that the report's <STEM>_untestable_absent_from_a_cell.tsv is exactly
+ancombc2's own list. The
 package declares such a taxon differentially abundant between that group and
 any group where it occurs, without a test. This adds one: for every contrast in
 the report's DA table and every structural-zero taxon absent from one side of
@@ -20,7 +21,8 @@ does not use. Presence is recomputed from the counts and checked against the
 untestable table.
 
 Writes tables/<STEM>_structural_zeros.tsv, one row per test, and prints one
-summary line per contrast, which check_report.py compares with the report.
+summary line per contrast, which check_report.py compares with the report. Also
+writes the two descriptive tables in descriptives(), which the report quotes.
 
 Usage, inside the qiime2 container:
     python3 structural_zeros.py
@@ -33,7 +35,6 @@ import pandas as pd
 from scipy.stats import binom, fisher_exact
 from statsmodels.stats.multitest import multipletests
 
-from plot_untestable_heatmap import collapse
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 STUDY_DIR = os.path.dirname(THIS_DIR)
@@ -54,6 +55,18 @@ CONTRASTS = [
 # ----
 
 TAB_DIR = os.path.join(OUT_DIR, "tables")
+LEVEL = 7   # species: collapse() keeps the first LEVEL taxonomy ranks
+
+
+def collapse(table, tax):
+    """Sum ASV counts onto their first LEVEL taxonomy ranks, as collapse_to_level() does."""
+    def path(t):
+        if not isinstance(t, str):
+            return None
+        parts = [p.strip() for p in t.split(";") if p.strip()]
+        return ";".join(parts[:LEVEL]) if parts else None
+    paths = tax.reindex(table.index).map(path)
+    return table[paths.notna()].groupby(paths[paths.notna()]).sum()
 
 
 def mcnemar_exact(b, c):
@@ -149,7 +162,29 @@ def summary(df):
     return rows
 
 
+def descriptives():
+    """The two counts the report quotes about structural zeros, no tests:
+    <STEM>_presence_by_cell.tsv, the mean number of DA taxa (tested + untestable)
+    each mouse carries, by cell; <STEM>_untestable_shares.tsv, each mouse's
+    share of reads in the untestable taxa and its largest one."""
+    meta, pct = abundance()
+    tested = pd.read_csv(os.path.join(TAB_DIR, f"{STEM}.tsv"), sep="\t").taxon
+    un = pd.read_csv(os.path.join(TAB_DIR, f"{STEM}_untestable_absent_from_a_cell.tsv"), sep="\t").taxon
+    present = (pct.loc[pd.concat([tested, un])] > 0).sum()
+    meta = meta.sort_values("PrimaryOrder", kind="stable")   # rows in the report's group order
+    by = present[meta.index].groupby([meta.Group, meta.Diet, meta.Radiation], sort=False)
+    pd.DataFrame({"taxa_present": by.mean(), "n": by.size()}).reset_index()[
+        ["Diet", "Radiation", "taxa_present", "n"]].to_csv(
+        os.path.join(TAB_DIR, f"{STEM}_presence_by_cell.tsv"), sep="\t", index=False, float_format="%.15g")
+    share, top = pct.loc[un].sum(), pct.loc[un].idxmax()
+    pd.DataFrame({"sampleid": share.index, "Group": meta.loc[share.index, "Group"].values,
+                  "untestable_pct": share.values, "top_taxon": top.values,
+                  "top_taxon_pct": [pct.loc[t, m] for t, m in zip(top, share.index)]}
+                 ).to_csv(os.path.join(TAB_DIR, f"{STEM}_untestable_shares.tsv"), sep="\t", index=False)
+
+
 def main():
+    descriptives()
     df = tests()
     df.to_csv(os.path.join(TAB_DIR, f"{STEM}_structural_zeros.tsv"), sep="\t", index=False)
     print(f"{len(df)} tests; q < 0.05: {(df.q < 0.05).sum()}; smallest p {df.p.min():.3g}, smallest q {df.q.min():.3g}")

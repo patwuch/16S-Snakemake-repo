@@ -22,7 +22,7 @@ import pandas as pd
 
 from da_rows import SWEEP, rows
 from plot_interaction_forest import PANELS, joint_q, load_tables
-from plot_untestable_heatmap import collapse
+from structural_zeros import collapse
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(THIS_DIR), "comparison-Diet-x-Radiation-factorial")
@@ -292,7 +292,7 @@ _nt = len(pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2.tsv"), s
 _nu = len(pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_untestable_absent_from_a_cell.tsv"), sep="\t"))
 expect(f"The plot covers the {_nt} taxa seen in every group. The {_nu} absent", "forest scope")
 expect(f"{_nt + _nu} taxa are seen in at least 4 of the 32 mice", "DA taxon set")
-# Taxa per mouse by group: a count, written by presence_interaction.R beside its (retired) tests.
+# Taxa per mouse by group: a count, written by structural_zeros.py.
 _bc = pd.read_csv(os.path.join(TAB, "ANCOMBC2_factorial_Greengenes2_presence_by_cell.tsv"), sep="\t", keep_default_na=False)
 _bc = {(r[0], r[1]): r.taxa_present for r in _bc.itertuples(index=False)}
 for _a, _b in ((("Control", "None"), ("Control", "IR")), (("SCFAs", "None"), ("SCFAs", "IR"))):
