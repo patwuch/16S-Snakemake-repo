@@ -50,3 +50,6 @@ __pycache__/
 *.out
 *.sif
 *.png
+# Local backup copies
+*.bak
+*.backup_*
