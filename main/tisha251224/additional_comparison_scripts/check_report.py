@@ -414,15 +414,90 @@ for _lv, _k in (("MetaCyc", "mc"), ("EC", "ec"), ("KO", "ko")):
 _pord = [_ps.find(x) for x in ("PICRUSt2 predicts which genes", "Prediction coverage</h3>", "picrust2_nsti.png", "Whole-profile tests</h3>",
                                "Diet: R² (p)", "Diet explains", "picrust2_MetaCyc_pca.png", "Per-feature tests</h3>", "<strong>MaAsLin3.</strong>",
                                "MaAsLin3 calls per row", "Robust calls gather", "picrust2_MetaCyc_heatmap.png", "picrust2_MetaCyc_volcano.png",
-                               "Two limits apply", "<h3>Findings</h3>")]
+                               "Two limits apply", "Short-chain fatty acid and formate metabolism</h3>", "picrust2_acetate.png",
+                               "picrust2_butyrate.png", "Butyrate synthesis moves most", "<h3>Findings</h3>")]
 if -1 in _pord or _pord != sorted(_pord):
     misses.append(f"PICRUSt2 section out of order or missing a part: {_pord}")
 if not (html.index("<h2>Differential abundance</h2>") < _P0 < html.index("<h2>Summary</h2>")):
     misses.append("PICRUSt2 section is not between Differential abundance and Summary")
-if _ps.count('<div class="finding') != 3:
-    misses.append("PICRUSt2 section should close on three findings")
+if _ps.count('<div class="finding') != 4:
+    misses.append("PICRUSt2 section should close on four findings")
 if re.search(r"LinDA|Fisher|Firth", _pt):
     misses.append("PICRUSt2 section mentions a method it no longer uses")
+
+# ---- PICRUSt2 PCA ellipses: plot_ggpicrust2.R draws them for every group with >= 3 samples ----
+_small = sorted(meta.Group.value_counts().loc[lambda n: n < 3].index)
+if _small != ["RS"]:
+    misses.append(f"PCA captions say every group but unirradiated RS has an ellipse; groups under 3 samples are {_small}")
+if html.count("Dashed ellipses span one standard deviation of each group with at least three samples (every group but unirradiated RS)") != 3:
+    misses.append("PCA captions: the ellipse sentence is not in all three")
+
+# ---- PICRUSt2 SCFA and formate panels: every quoted range from plot_picrust2_targets.py's tables ----
+_SC = {_m: pd.read_csv(os.path.join(TAB, f"PICRUSt2_{_m}_results.tsv"), sep="\t", dtype={"feature": str})
+       for _m in ("acetate", "formate", "propionate", "butyrate")}
+for _m in _SC:
+    if f'src="figures/picrust2_{_m}.png"' not in html:
+        misses.append(f"PICRUSt2: {_m} panel not shown")
+
+
+def _sg(v, nd):
+    return (MINUS if v < 0 else "+") + f"{abs(v):.{nd}f}"
+
+
+def _rg(vals, nd=1):
+    vals = sorted(vals, key=abs)
+    a, b = _sg(vals[0], nd), _sg(vals[-1], nd)
+    return a if a == b else f"{a} to {b}"
+
+
+def _robust(m, rows, ids, n, sign=-1, why=""):
+    d = _SC[m][_SC[m].row.isin(rows) & _SC[m].feature.isin(ids)]
+    if len(d) != n or not d.robust.all() or not (d.coef * sign > 0).all():
+        misses.append(f"PICRUSt2 {m}: {why} are not {n} robust calls in the stated direction")
+    return d.coef
+
+
+def _typ(m, rows, dbs):
+    return _SC[m][_SC[m].row.isin(rows) & _SC[m].database.isin(dbs)].typical_shift.unique()
+
+
+_INU, _RSC, _RSI = ["Inulin vs Cellulose", "Inulin+IR vs Cellulose+IR"], ["RS+IR vs Cellulose+IR"], ["RS+IR vs Inulin+IR"]
+_inu = _rg(_robust("butyrate", _INU, ["2.3.1.9", "4.2.1.17", "ko:K00626", "ko:K01715"], 8, why="inulin thiolase/crotonase"))
+_inu_ty = _rg(_typ("butyrate", _INU, ["EC", "KO"]))
+_four = _rg(_robust("butyrate", _RSC, ["2.3.1.9", "1.1.1.157", "4.2.1.17", "1.3.8.1", "ko:K00626", "ko:K00074",
+                                       "ko:K01715", "ko:K00248"], 8, why="RS+IR butyrate enzymes"))
+_rsc_ty = _rg(_typ("butyrate", _RSC, ["EC", "KO"]))
+expect(f"thiolase and crotonase are robust calls at {_inu} log2, where the typical feature shifts {_inu_ty}", "SCFA inulin butyrate")
+expect(f"against Cellulose+IR all four are robust calls at {_four} log2, against a typical shift of {_rsc_ty}", "SCFA RS+IR butyrate")
+_glut = _rg(_robust("butyrate", _RSC, ["2.8.3.12", "ko:K01039", "ko:K01040", "ko:K01615"], 4, why="glutarate route"))
+_kal = _sg(_robust("butyrate", _RSC, ["ko:K18014"], 1, why="kal").iloc[0], 1)
+expect(f"the glutarate route ({_glut}) and the lysine route's last enzyme ({_kal})", "SCFA glutarate and lysine")
+if _SC["butyrate"][_SC["butyrate"].feature.isin(["ko:K00634", "ko:K00929", "2.3.1.19", "2.7.2.7"])].robust.any():
+    misses.append("PICRUSt2 butyrate: ptb/buk has a robust call, but the text says none")
+expect("butyrate kinase with phosphate butyryltransferase, has no robust call in any row", "SCFA butyrate final step")
+_pfl_i = _rg(_robust("formate", _RSI, ["2.3.1.54", "ko:K00656", "ko:K04069"], 3, why="pfl vs Inulin+IR"), 2)
+_mix_i = _sg(_robust("formate", _RSI, ["FERMENTATION-PWY"], 1, why="mixed acid fermentation").iloc[0], 2)
+expect(f"activating enzyme pflA are robust calls at {_pfl_i} log2", "SCFA pfl vs Inulin+IR")
+expect(f"at {_mix_i}, where the typical feature shifts {_rg(_typ('formate', _RSI, ['MetaCyc', 'EC', 'KO']))}", "SCFA mixed acid vs Inulin+IR")
+_pfl_c = _rg(_robust("formate", _RSC, ["2.3.1.54", "1.97.1.4", "ko:K00656", "ko:K04069", "ko:K04070"], 5, why="pfl vs Cellulose+IR"))
+expect(f"features are robust calls at {_pfl_c}, but the typical feature there shifts {_rg(_typ('formate', _RSC, ['MetaCyc', 'EC', 'KO']))}",
+       "SCFA pfl vs Cellulose+IR")
+expect(f"is a robust call at {_rg(_robust('formate', _RSC + _RSI, ['6.3.4.3', 'ko:K01938'], 4, why='fhs'))} against both other irradiated diets",
+       "SCFA fhs")
+expect(f"(interaction {_rg(_robust('formate', ['Interaction: RS vs Inulin'], ['6.3.4.3', 'ko:K01938'], 2, why='fhs interaction'))})",
+       "SCFA fhs interaction")
+_mut = _rg(_robust("propionate", _RSC, ["5.4.99.2", "5.1.99.1", "ko:K01847", "ko:K05606"], 4, sign=1, why="mutase/epimerase"), 2)
+expect(f"methylmalonyl-CoA mutase and epimerase are robust calls at {_mut} log2 against a typical shift of {_rsc_ty}", "SCFA propionate mutase")
+expect(f"methylmalonyl-CoA carboxyltransferase are at {_rg(_robust('propionate', _RSC, ['P108-PWY', '2.1.3.1', 'ko:K03416'], 3, why='succinate pathway'))}",
+       "SCFA propionate pathway")
+_pa = _SC["acetate"][(_SC["acetate"].role == "Acetate from acetyl-CoA (Pta–AckA)") & _SC["acetate"].robust]
+if len(_pa) != 2 or _pa.coef.abs().max() >= 0.4:
+    misses.append(f"PICRUSt2 acetate: Pta–AckA has {len(_pa)} robust calls, largest {_pa.coef.abs().max():.2f}; the text says 2, under 0.4")
+expect(f"has {len(_pa)} robust calls, both under 0.4 log2", "SCFA Pta-AckA")
+_ato = _rg(_robust("acetate", ["Inulin+IR vs Cellulose+IR"] + _RSC, ["ko:K01034", "ko:K01035"], 4, why="AtoDA"))
+expect(f"is {_ato} in Inulin+IR and RS+IR against Cellulose+IR", "SCFA AtoDA")
+expect(f"thiolase and crotonase are robust calls at {_inu} log2, unirradiated and irradiated", "SCFA finding inulin")
+expect(f"all four enzymes are robust calls at {_four}, against {_rsc_ty}", "SCFA finding RS+IR")
 
 # ---- every section: at most four findings, and they close it ----
 # The Summary alone may add up to two red findings ("finding no": easily misread results) after its

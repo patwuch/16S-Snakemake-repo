@@ -35,6 +35,27 @@ save <- function(p, stem, w, h) {
 }
 LEVEL_NAME <- c(MetaCyc = "MetaCyc pathways", KO = "KEGG orthologs (KO)", EC = "enzymes (EC)")
 
+# pathway_pca's 95% stat_ellipse needs at least four samples per group, so it skips every group of
+# two or three here. Replace it with the beta-diversity PCoA's ellipses (plot_diversity_factorial.py):
+# one standard deviation along each principal axis of the group's points, for every group with at
+# least three samples. Visual grouping only, not a confidence region.
+sd_ellipses <- function(p) {
+  p$layers <- Filter(function(l) !inherits(l$stat, "StatEllipse"), p$layers)
+  # pathway_pca matches colours to groups by position, in the order the groups first appear in its
+  # data, not in the order given; set both scales by name and the legend in design order.
+  p$data$Group <- factor(p$data$Group, levels = levels(md$Group))
+  t <- seq(0, 2 * pi, length.out = 100)
+  el <- do.call(rbind, lapply(split(p$data, p$data$Group), function(d) {
+    if (nrow(d) < 3) return(NULL)
+    e <- eigen(cov(d[, c("PC1", "PC2")]), symmetric = TRUE)
+    xy <- t(e$vectors %*% (sqrt(pmax(e$values, 0)) * rbind(cos(t), sin(t))))
+    data.frame(PC1 = mean(d$PC1) + xy[, 1], PC2 = mean(d$PC2) + xy[, 2], Group = d$Group[1])
+  }))
+  p$layers <- c(geom_polygon(data = el, aes(PC1, PC2, color = Group, fill = Group), alpha = 0.10,
+                             linetype = "dashed", linewidth = 0.5, show.legend = FALSE), p$layers)
+  p + scale_colour_manual(values = cols, breaks = levels(md$Group)) + scale_fill_manual(values = cols, guide = "none")
+}
+
 if (WHAT == "pca") {
   # PCA per level (pathway_pca centres and scales each feature, so features with no
   # variance across the 19 samples are dropped first).
@@ -42,7 +63,8 @@ if (WHAT == "pca") {
     ab <- read_ab(lv)
     ab <- ab[apply(ab, 1, sd) > 0, , drop = FALSE]
     pca <- pathway_pca(abundance = ab, metadata = md, group = "Group", colors = unname(cols[levels(md$Group)]),
-                       show_marginal = FALSE) +
+                       show_marginal = FALSE)
+    pca <- sd_ellipses(pca) +
       ggtitle(sprintf("Predicted %s: PCA of %s features", LEVEL_NAME[[lv]], format(nrow(ab), big.mark = ",")))
     save(pca, paste0("picrust2_", lv, "_pca"), 7, 6)
   }
@@ -146,5 +168,6 @@ for (lv in names(LEVEL_NAME)) {
   vol <- wrap_plots(panels, ncol = 3) +
     plot_annotation(title = paste("Predicted", LEVEL_NAME[[lv]], "· MaAsLin3, change in share of the predicted total"),
                     caption = "Dashed line at raw p = 0.05; colour marks raw p < 0.05; names mark robust calls (q < 0.05 in all 19 leave-one-out refits)")
+  set.seed(42)   # ggrepel places the labels when the plot is drawn
   save(vol, paste0("picrust2_", lv, "_volcano"), 16, 19)
 }
