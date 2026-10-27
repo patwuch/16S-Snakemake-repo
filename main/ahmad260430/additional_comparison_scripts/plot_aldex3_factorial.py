@@ -243,7 +243,7 @@ def forest(order, key, question, comps, name):
 # ---------------------------------------------------------------- presence
 def presence_heatmap(genus_only, name):
     """Dot map: dot size = mice in the group carrying the taxon, shade = the group's mean share of reads."""
-    cnt = pd.read_csv(os.path.join(TAB, f"collapsed_counts_Greengenes2_Day17.tsv"), sep="\t", index_col=0)
+    cnt = pd.read_csv(os.path.join(TAB, f"collapsed_counts_Greengenes2_Day17_minpres6.tsv"), sep="\t", index_col=0)
     meta = pd.read_csv(os.path.join(STUDY, "metadata.tsv"), sep="\t", index_col=0).loc[cnt.columns]
     depth = cnt.sum()  # collapsed_counts keeps every taxon, so these are the full depths
     cnt = cnt[(cnt > 0).sum(axis=1) >= 6]

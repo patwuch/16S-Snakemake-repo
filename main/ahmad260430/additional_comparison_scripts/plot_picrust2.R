@@ -33,9 +33,10 @@ if (REPORT == "factorial") {
     row = c(rep(c("IFA vs Control", "Inosine vs Control", "IFA vs Inosine"), 2), "IR within Control", "IR within IFA",
             "IR within Inosine", "Interaction: IFA vs Control", "Interaction: Inosine vs Control", "Interaction: IFA vs Inosine"),
     stratum = c(rep("None", 3), rep("IR", 3), rep("", 6)),
-    label = c("IFA vs Control", "Inosine vs Control", "IFA vs Inosine", "IFA+IR vs IR", "Inosine+IR vs IR",
-              "IFA+IR vs Inosine+IR", "IR vs Control", "IFA+IR vs IFA", "Inosine+IR vs Inosine",
-              "Interaction: IFA vs Control", "Interaction: Inosine vs Control", "Interaction: IFA vs Inosine"),
+    # Baseline on the left (user, 2026-10-23); the estimate is the right-hand group's change.
+    label = c("Control vs IFA", "Control vs Inosine", "Inosine vs IFA", "IR vs IFA+IR", "IR vs Inosine+IR",
+              "Inosine+IR vs IFA+IR", "Control vs IR", "IFA vs IFA+IR", "Inosine vs Inosine+IR",
+              "Interaction: Control vs IFA", "Interaction: Control vs Inosine", "Interaction: Inosine vs IFA"),
     first = c("IFA", "Inosine", "IFA", "IFA+IR", "Inosine+IR", "IFA+IR", "IR", "IFA+IR", "Inosine+IR", NA, NA, NA),
     second = c("Control", "Control", "Inosine", "IR", "IR", "Inosine+IR", "Control", "IFA", "Inosine", NA, NA, NA),
     stringsAsFactors = FALSE)
@@ -91,6 +92,7 @@ p <- ggplot(d, aes(Group, weighted_NSTI, fill = Group)) + geom_boxplot(outlier.s
   scale_fill_manual(values = cols, guide = "none") + ylim(0, max(0.2, max(d$weighted_NSTI) * 1.15)) +
   labs(x = NULL, y = "weighted NSTI", title = "Distance of each sample's ASVs to their nearest reference genome") +
   theme_classic(base_size = 11) + theme(plot.title = element_text(size = 10))
+set.seed(42)   # geom_jitter's positions are drawn when the plot is built
 save(p, "picrust2_nsti", 7, 4)
 
 pca_two <- function(ab, lv) {
@@ -192,5 +194,6 @@ for (lv in names(LEVEL_NAME)) {
   vol <- wrap_plots(panels, ncol = NCOL) +
     plot_annotation(title = paste("Predicted", LEVEL_NAME[[lv]], "· MaAsLin3, change in share of the predicted total"),
                     caption = sprintf("Dashed line at raw p = 0.05; colour marks raw p < 0.05; names mark robust calls (q < 0.05 in every leave-one-mouse-out refit)"))
+  set.seed(42)   # ggrepel places the labels when the plot is drawn
   save(vol, paste0("picrust2_", lv, "_volcano"), 16, VOL_H)
 }

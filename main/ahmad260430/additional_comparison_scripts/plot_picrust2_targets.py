@@ -30,13 +30,13 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 STUDY = os.path.dirname(THIS_DIR)
 REPORTS = {
     "factorial": ("comparison-Treatment-x-Radiation-factorial", [
-        ("IFA vs Control", "None", "IFA vs Control"), ("Inosine vs Control", "None", "Inosine vs Control"),
-        ("IFA vs Inosine", "None", "IFA vs Inosine"), ("IFA vs Control", "IR", "IFA+IR vs IR"),
-        ("Inosine vs Control", "IR", "Inosine+IR vs IR"), ("IFA vs Inosine", "IR", "IFA+IR vs Inosine+IR"),
-        ("IR within Control", "", "IR vs Control"), ("IR within IFA", "", "IFA+IR vs IFA"),
-        ("IR within Inosine", "", "Inosine+IR vs Inosine"), ("Interaction: IFA vs Control", "", "Interaction: IFA vs Control"),
-        ("Interaction: Inosine vs Control", "", "Interaction: Inosine vs Control"),
-        ("Interaction: IFA vs Inosine", "", "Interaction: IFA vs Inosine")]),
+        ("IFA vs Control", "None", "Control vs IFA"), ("Inosine vs Control", "None", "Control vs Inosine"),
+        ("IFA vs Inosine", "None", "Inosine vs IFA"), ("IFA vs Control", "IR", "IR vs IFA+IR"),
+        ("Inosine vs Control", "IR", "IR vs Inosine+IR"), ("IFA vs Inosine", "IR", "Inosine+IR vs IFA+IR"),
+        ("IR within Control", "", "Control vs IR"), ("IR within IFA", "", "IFA vs IFA+IR"),
+        ("IR within Inosine", "", "Inosine vs Inosine+IR"), ("Interaction: IFA vs Control", "", "Interaction: Control vs IFA"),
+        ("Interaction: Inosine vs Control", "", "Interaction: Control vs Inosine"),
+        ("Interaction: IFA vs Inosine", "", "Interaction: Inosine vs IFA")]),
     "day17-day25": ("comparison-day17-day25", [
         ("Day 17 to 25 in IFA", "", "Day 17 to 25, IFA"), ("Day 17 to 25 in IFA+IR", "", "Day 17 to 25, IFA+IR"),
         ("IFA+IR vs IFA at Day 17", "", "IFA+IR vs IFA, Day 17"), ("IFA+IR vs IFA at Day 25", "", "IFA+IR vs IFA, Day 25"),
@@ -134,7 +134,7 @@ def main(report):
         ax.tick_params(length=0)
         cax = fig.add_axes([0.40, 0.35 / fig_h, 0.22, 0.12 / fig_h])
         cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, orientation="horizontal")
-        cb.set_label("change in share of the predicted total (log2; first-named group higher → red)", fontsize=7.5, color=MUTED)
+        cb.set_label("change in share of the predicted total (log2; right-hand group higher → red)", fontsize=7.5, color=MUTED)
         cb.ax.tick_params(labelsize=7)
         fig.text(0.66, 0.42 / fig_h, "●  robust call    ○  call, not robust    grey: not tested", fontsize=7.5, color=MUTED, va="center")
         fig.suptitle(f"{TITLES[comp]}: curated predicted features", x=0.01, ha="left", fontsize=11, color=INK)

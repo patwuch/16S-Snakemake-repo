@@ -2,8 +2,8 @@
 """Check comparison-Treatment-x-Radiation-factorial/report.html against its tables.
 
 Covers the differential-abundance section and the summary lines that quote it:
-every figure the page references exists and is non-empty, the ALDEx3 table's
-twelve rows match aldex3_rows_factorial.py cell by cell, and each number in the
+every figure the page references exists and is non-empty, the MaAsLin3 table's
+twelve rows match maaslin3_rows_factorial.py cell by cell, and each number in the
 prose and captions is recomputed from its table. ANCOM-BC2 is shelved from this
 report (ANALYSIS_LOG, 2026-09-30); its pre-ALDEx3 checker is archived with the
 old report in ../archive_ancombc2_report_2026-09-30/. The Beta diversity
@@ -23,9 +23,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-import aldex3_rows_factorial
+import maaslin3_rows_factorial as m3
 from scipy.stats import fisher_exact
-from plot_aldex3_factorial import genus_or_above
+from plot_maaslin3_factorial import genus_or_above
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(THIS_DIR), "comparison-Treatment-x-Radiation-factorial")
@@ -62,22 +62,30 @@ expect(f"{n_fig} figures, PNG and SVG", "figure count")
 
 # ---- tested set ----
 main = pd.read_csv(os.path.join(TAB, f"{STEM}.tsv"), sep="\t")
-strict = pd.read_csv(os.path.join(TAB, "DA_factorial_Greengenes2_Day17_minpres12.tsv"), sep="\t")
-named = main.taxon.map(lambda t: bool(re.match(r"s__.", t.split(";")[-1].strip())))
-expect(f"{len(main)} of them are seen in at least one mouse of every one of the six groups", "tested count")
+_m3 = m3.table()
+_ab = _m3[(_m3.model == "abundance") & _m3.p.notna()]
+tested = sorted(set(_ab.taxon))
+named = pd.Series(tested).map(lambda t: bool(re.match(r"s__.", t.split(";")[-1].strip())))
+_unfit = set(main.taxon) - set(tested)
+if set(tested) - set(main.taxon) or len(_unfit) != 1 or not next(iter(_unfit)).endswith("Hominilimicola sp001941225"):
+    misses.append(f"abundance-tested taxa are not the every-group taxa less Hominilimicola: {sorted(_unfit)}")
+expect(f"{len(main)} are seen in at least one mouse of every one of the six groups, and {len(tested)} of these are "
+       "tested for abundance", "tested count")
 expect(f"{named.sum()} carry a species call, and the other {(~named).sum()}", "species split")
-expect(f"least 12 of the 24 mice ({len(strict)} tested)", "stricter filter taxa")
-_ald = aldex3_rows_factorial.table()
-if set(_ald.taxon) != set(main.taxon) or set(aldex3_rows_factorial.table(12).taxon) != set(strict.taxon):
-    misses.append("ALDEx3 taxon sets differ from the tested sets")
+_mc = pd.read_csv(os.path.join(m3.MA, "counts_Greengenes2.tsv"), sep="\t", index_col=0)
+_kept = _mc.loc[:, (_mc > 0).sum() >= 3]
+expect(f"MaAsLin3 is given the {_kept.shape[1]} taxa seen in at least 3 of the 24 mice, which hold at least "
+       f"{(_kept.sum(axis=1) / _mc.sum(axis=1)).min() * 100:.1f}% of every mouse's reads", "MaAsLin3 input")
+expect(f"{int(((_mc > 0).sum() >= 6).sum())} of them are seen in at least 6 mice", "dot map count")
 _n_un = len(pd.read_csv(os.path.join(TAB, f"{STEM}_untestable_absent_from_a_cell.tsv"), sep="\t"))
-expect(f"splits its power across the {len(main)} taxa seen in every group, and cannot use the {_n_un} missing from a whole group", "summary taxa count")
+expect(f"MaAsLin3 tests the {len(tested)} taxa seen in every group one at a time, and cannot test the abundance of the "
+       f"{_n_un} missing from a whole group", "summary taxa count")
 
 # ---- untestable taxa and heatmap ----
 un = pd.read_csv(os.path.join(TAB, f"{STEM}_untestable_absent_from_a_cell.tsv"), sep="\t")
 absent = un[[c for c in un.columns if "(n=" in c]].eq(0)
 n_ifa = int(absent["IFA (n=4)"].sum())
-expect(f"The other {len(un)} are missing from at least one whole group", "structural zero count")
+expect(f"The other {len(un)} taxa of the dot map are missing from at least one whole group", "structural zero count")
 # The per-mouse heatmap of the 33 was merged into the presence heatmap (peak share in each label).
 if "untestable_heatmap" in html:
     misses.append("the per-mouse structural-zero heatmap is back; it is merged into the presence heatmap")
@@ -98,82 +106,86 @@ if absent.sum().idxmax() != "IFA (n=4)":
 if "LinDA" in html:
     misses.append("the report mentions LinDA, which it does not use")
 
-# ---- ALDEx3 table ----
-table = {}
-question = None
-i = html.index("<span style=\"text-transform:none\">γ</span> = 1</th>")
-body = html[html.index("<tbody>", i):html.index("</tbody>", i)]
-for r in re.findall(r"<tr[^>]*>(.*?)</tr>", body, re.S):
-    c = cells(r)
-    if len(c) == 8:
-        question, c = c[0], c[1:]
-    table[(question, c[0])] = c
-A_ROWS = aldex3_rows_factorial.rows()
-for r in A_ROWS:
-    got = table.get((r["question"], r["label"]))
-    want = fmt_row(r["n"], r["max_up"], r["max_down"], r["min_q"]) + (str(r["n_strict"]), str(r["n_gamma1"]))
-    status = "none" if r["n"] == 0 else ("holds" if r["n_strict"] >= r["n"] and r["n_gamma1"] >= r["n"] else "scale-sensitive")
-    if got is None:
-        misses.append(f"ALDEx3 row {r['label']}: not found")
-    elif tuple(got[1:6]) != want or got[6] != status:
-        misses.append(f"ALDEx3 row {r['question'][:25]} {r['label']}: report {tuple(got[1:])}, tables {want + (status,)}")
+# ---- MaAsLin3 table ----
+_i = html.index("<th class=\"n\">Calls (robust)</th>")
+_body = html[html.index("<tbody>", _i):html.index("</tbody>", _i)]
+_got = [l.strip() for l in _body.splitlines() if l.strip().startswith("<tr")]
+M_ROWS = m3.rows()
+if _got != m3.html_rows(M_ROWS):
+    misses.append("MaAsLin3 table differs from maaslin3_rows_factorial.py")
 
-# ---- ALDEx3 prose ----
-_un = [r for r in A_ROWS if r["stratum"] == "unirradiated" and r["label"] == "IFA vs Control"][0]["hits"]
-_ir = [r for r in A_ROWS if r["label"] == "IFA+IR vs IR"][0]["hits"]
-_rad = [r for r in A_ROWS if r["row"] == "Radiation within IFA"][0]["hits"]
-_int = [r for r in A_ROWS if r["row"] == "Interaction: IFA vs Control"][0]["hits"]
-if not (len(_un) == len(_rad) == len(_int) == 1 and len(_ir) == 2 and
-        all(h["taxon"].endswith("g__Duncaniella") for h in _un + _rad + _int) and
-        [h["taxon"].split(" ")[-1] for h in _ir] == ["gordoncarteri", "freteri"]):
-    misses.append("ALDEx3 hits differ from the taxa the text names")
-if sum(r["n"] for r in A_ROWS) != 5 or any(r["n"] for r in A_ROWS if "Inosine" in r["label"] and "IFA" not in r["label"]):
-    misses.append("text says five hits in all and none in any inosine row")
-expect(f"by {_un[0]['log2FC']:.2f} log2 (q = {_un[0]['q']:.3f})", "IFA unirradiated hit")
-expect(f"(+{_ir[0]['log2FC']:.2f}, q = {_ir[0]['q']:.3f})", "gordoncarteri")
-expect(f"(+{_ir[1]['log2FC']:.2f}, q = {_ir[1]['q']:.3f})", "freteri")
-expect(f"about {2 ** _un[0]['log2FC']:.0f}-fold", "fold-change example")
-if not (9.5 <= 2 ** min(h["log2FC"] for h in _un + _ir) and 2 ** max(h["log2FC"] for h in _un + _ir) <= 15.5):
-    misses.append("IFA hits are not about ten- to fifteenfold")
-_g1 = aldex3_rows_factorial.table(6, "1")
-_q1 = lambda row, st, t: float(aldex3_rows_factorial.pick(_g1, row, st).set_index("taxon").q[t])
-_g1s = [_q1("IFA vs Control", "unirradiated", _un[0]["taxon"])] + [_q1("IFA vs Control", "irradiated", h["taxon"]) for h in _ir]
-expect(f"the three treatment hits fall to q = {min(_g1s):.3f}–{max(_g1s):.3f}", "IFA hits at gamma 1")
-expect(f"by {-_rad[0]['log2FC']:.2f} log2 (q = {_rad[0]['q']:.3f})", "radiation within IFA")
-expect(f"(−{-_int[0]['log2FC']:.2f}, q = {_int[0]['q']:.3f})", "interaction hit")
-expect(f"(q = {_q1('Radiation within IFA', '', _rad[0]['taxon']):.3f}); the interaction does not (q = "
-       f"{_q1('Interaction: IFA vs Control', '', _int[0]['taxon']):.2f})", "Duncaniella at gamma 1")
-_ir_rows = [r for r in A_ROWS if r["row"].startswith("Interaction")]
-_nom, _tst = sum(r["nominal"] for r in _ir_rows), sum(r["tested"] for r in _ir_rows)
-expect(f"{_nom} of the {_tst} interaction coefficients have raw p &lt; 0.05", "interaction nominal")
+# ---- MaAsLin3 prose ----
+_h = _ab[_ab.call]
+_short = lambda t: t.split(";")[-1] if not t.endswith("__") else t.split(";")[-2]
+expect(f"{len(_h)} calls on {_h.taxon.nunique()} taxa; {int(_h.robust.sum())} of them, on "
+       f"{_h[_h.robust].taxon.nunique()} taxa, hold whichever mouse is left out", "call counts")
+if not all("f__Muribaculaceae" in t for t in _h[_h.robust].taxon):
+    misses.append("text says every robust taxon is a Muribaculaceae")
+_rob = {_short(t) for t in _h[_h.robust].taxon}
+if _rob != {"s__Duncaniella dubosii", "s__Muribaculum gordoncarteri", "g__Duncaniella", "f__Muribaculaceae",
+            "s__CAG-873 sp011959565"}:
+    misses.append(f"the five robust taxa differ from the text: {sorted(_rob)}")
+_c = lambda row, st, k: float(_ab[(_ab.row == row) & (_ab.stratum == st) & _ab.taxon.str.endswith(k)].coef.iloc[0])
+_f = lambda v: f"{v:.2f}"
+_sg = lambda v: f"{v:+.2f}".replace("-", "−")
+_dd = "Duncaniella dubosii"
+expect(f"{_f(-_c('IFA vs Control', 'unirradiated', _dd))} log2 lower than in Control and "
+       f"{_f(-_c('IFA vs Inosine', 'unirradiated', _dd))} lower than in Inosine", "dubosii treatment")
+expect(f"({_sg(_c('Radiation within IFA', '', _dd))};", "dubosii radiation")
+expect(f"against Control ({_sg(_c('Interaction: IFA vs Control', '', _dd))}) and against Inosine "
+       f"({_sg(_c('Interaction: IFA vs Inosine', '', _dd))})", "dubosii interaction")
+_mg = "gordoncarteri"
+expect(f"{_sg(_c('IFA vs Control', 'unirradiated', _mg))} against Control and {_sg(_c('IFA vs Inosine', 'unirradiated', _mg))} "
+       f"against Inosine in unirradiated mice, {_sg(_c('IFA vs Control', 'irradiated', _mg))} and "
+       f"{_sg(_c('IFA vs Inosine', 'irradiated', _mg))} in irradiated", "gordoncarteri")
+expect(f"({_sg(_c('Radiation within IFA', '', ';g__Duncaniella'))} log2;", "Duncaniella genus radiation")
+expect(f"its interaction against Control passes ({_sg(_c('Interaction: IFA vs Control', '', ';g__Duncaniella'))})", "Duncaniella genus interaction")
+expect(f"{_sg(_c('Inosine vs Control', 'irradiated', 'f__Muribaculaceae'))} for Inosine+IR and "
+       f"{_sg(_c('IFA vs Control', 'irradiated', 'f__Muribaculaceae'))} for IFA+IR against IR", "Muribaculaceae")
+expect(f"IFA against Inosine ({_sg(_c('Interaction: IFA vs Inosine', '', 'CAG-873 sp011959565'))})", "CAG-873")
+# Group shares of reads, over every collapsed taxon.
+_meta3 = pd.read_csv(os.path.join(m3.MA, "metadata.tsv"), sep="\t", index_col=0, keep_default_na=False)
+_key = pd.read_csv(os.path.join(m3.MA, "feature_key.tsv"), sep="\t").set_index("feature").taxon
+_rel = _mc.div(_mc.sum(axis=1), axis=0) * 100
+_share = lambda k, g: _rel[[f for f in _rel.columns if _key[f].endswith(k)][0]][_meta3.Group == g].mean()
+_p1 = lambda v: f"{v:.1f}%"
+expect(f"{_share(_dd, 'IFA'):.2f}% of reads on average against {_p1(_share(_dd, 'Control'))} in Control", "dubosii shares")
+expect(f"{_p1(_share(_dd, 'IFA+IR'))} of reads in IFA+IR", "dubosii IFA+IR share")
+expect(f"({_p1(_share(_mg, 'Control'))} of reads in Control, {_p1(_share(_mg, 'IFA'))} in IFA, {_p1(_share(_mg, 'IFA+IR'))} in IFA+IR)",
+       "gordoncarteri shares")
+expect(f"{_p1(_share(';g__Duncaniella', 'IFA'))} to {_p1(_share(';g__Duncaniella', 'IFA+IR'))} of reads", "Duncaniella genus shares")
+if int((_mc[[f for f in _mc.columns if _key[f].endswith(_dd)][0]][_meta3.Group == "IFA"] > 0).sum()) != 3:
+    misses.append("text says 3 of 4 unirradiated IFA mice carry D. dubosii")
+_nr = _h[~_h.robust]
+expect(f"The other {len(_nr)} calls lose q &lt; 0.05", "non-robust count")
+_law = _h[_h.taxon.str.endswith("Lawsonibacter sp000492175")]
+expect(f"{_f(-_law.coef.max())} to {_f(-_law.coef.min())} log2 lower under IFA", "Lawsonibacter range")
+expect(f"it holds in {_law.loo_holds_in.min()} or {_law.loo_holds_in.max()} of the 24 refits", "Lawsonibacter refits")
+_fr = _h[_h.taxon.str.endswith("Duncaniella freteri")].iloc[0]
+expect(f"{_f(_fr.coef)} log2 higher in IFA+IR than IR and holds in {_fr.loo_holds_in}", "freteri")
+_iu = _ab[(_ab.row == "Inosine vs Control") & (_ab.stratum == "unirradiated")].sort_values("q").iloc[0]
+if _iu.call or not _iu.taxon.endswith("Muribaculum intestinale"):
+    misses.append("inosine's nearest unirradiated taxon differs from the text")
+expect(f"{_f(_iu.coef)} log2 higher than in Control (q = {_iu.q:.3f})", "inosine nearest")
+_mq = lambda row: _ab[_ab.row == row].q.min()
+expect(f"(smallest q {_mq('Radiation within Control'):.3f} and {_mq('Radiation within Inosine'):.3f})", "radiation no call")
+_irw = _ab[_ab.family == "interaction"]
+_nom, _tst = int((_irw.p < 0.05).sum()), len(_irw)
+expect(f"{_nom} of the {_tst} coefficients have raw p &lt; 0.05, where chance alone gives about {round(0.05 * _tst)}", "interaction nominal")
 expect(f"{_nom} of {_tst} coefficients nominal where about {round(0.05 * _tst)} are expected", "summary nominal")
-_mq = lambda row, st: float(aldex3_rows_factorial.pick(_ald, row, st).q.min())
-expect(f"(smallest q {_mq('IFA vs Inosine', 'unirradiated'):.2f} unirradiated, {_mq('IFA vs Inosine', 'irradiated'):.2f} irradiated)",
-       "IFA vs Inosine smallest q")
-_iu = aldex3_rows_factorial.pick(_ald, "Inosine vs Control", "unirradiated").sort_values("p").iloc[0]
-_ii = aldex3_rows_factorial.pick(_ald, "Inosine vs Control", "irradiated").sort_values("p").iloc[0]
-if not (_iu.taxon.endswith("g__Alistipes_A_871400;s__") and _ii.taxon.endswith("Duncaniella freteri")):
-    misses.append("inosine lead taxa differ from the text")
-expect(f"{-_iu.log2FC:.2f} log2 lower than Control in unirradiated mice (raw p = {_iu.p:.3f}, q = {_iu.q:.2f})", "inosine unirradiated")
-expect(f"{_ii.log2FC:.2f} log2 higher under inosine (q = {_ii.q:.3f})", "inosine irradiated")
-
-# ---- claims added in the 2026-10-01 wording pass ----
-_gm = pd.read_csv(os.path.join(TAB, "ALDEx3_factorial_Greengenes2_Day17_minpres6_gamma0.5_groupmeans.tsv"), sep="\t").set_index("taxon")
-_dg = _gm.loc[_un[0]["taxon"]]
-if not (_dg["IFA"] == _dg.max() and _dg["IFA+IR"] < _dg["Control"]):
-    misses.append("text says Duncaniella (genus only) peaks in IFA and ends below Control in IFA+IR")
-_mur = _gm.loc[[t for t in _gm.index if "f__Muribaculaceae" in t]]
-_mc = _mur.sub(_mur.mean(axis=1), axis=0).mean()
-if not (_mc["IFA"] == _mc.max() and 0 < _mc["IFA+IR"] < _mc["IFA"]):
-    misses.append("text says the Muribaculaceae are highest in unirradiated IFA and less raised in IFA+IR")
-expect(f"the taxon is missing from {int(_iu.n_zero_mice)} of the 24 mice", "Alistipes zero count")
-_hits = lambda d: {(r.row, r.stratum, r.taxon) for r in d[d.q < 0.05].itertuples()}
-_h5 = _hits(_ald)
-_h25, _h0 = _hits(aldex3_rows_factorial.table(6, "0.25")), _hits(aldex3_rows_factorial.table(6, "0"))
-_extra = _h0 - _h5
-if not (_h25 == _h5 and not (_h5 - _h0) and len(_extra) == 1 and
-        next(iter(_extra))[:2] == ("Inosine vs Control", "irradiated") and next(iter(_extra))[2].endswith("Duncaniella freteri")):
-    misses.append("text says gamma 0.25 gives the same hits and gamma 0 adds D. freteri in Inosine+IR vs IR")
+_typ = [r for r in M_ROWS if r["row"] == "IFA vs Control" and r["stratum"] == "unirradiated"][0]["typical"]
+if _typ != min(r["typical"] for r in M_ROWS):
+    misses.append("text says unirradiated IFA vs Control has the largest typical-taxon shift")
+expect(f"the median taxon's share is {-_typ:.2f} log2 lower than in Control", "typical taxon")
+expect(f"The typical taxon's share falls {-_typ:.2f} log2", "finding typical taxon")
+_ver = pd.read_csv(os.path.join(m3.MA, "MaAsLin3_factorial_Greengenes2_Day17_median_check_verdict.tsv"), sep="\t")
+expect(f"in {int((~_ver['pass']).sum())} of the {len(_ver)} comparisons, so the table gives it as context", "median check")
+_pr = _m3[(_m3.model == "prevalence") & _m3.p.notna()]
+if _pr.call.any():
+    misses.append("the presence model has a call, but the text says none")
+expect(f"gives no call in any comparison (smallest q {_pr.q.min():.2f})", "presence floor")
+expect(f"does not survive correction across {_pr.feature.nunique()} taxa", "presence taxa")
+expect(f"reaches p = {fisher_exact([[4, 0], [0, 4]])[1]:.3f} at best", "design floor")
 if re.search(r"log of zero|genus-level, no species call", html):
     misses.append("stale wording: 'log of zero' or 'genus-level, no species call'")
 
@@ -182,44 +194,49 @@ _gi = html.find("Reading the two kinds of result together")
 if not (html.find("Both together") < _gi < html.find("Which taxa move with which factor?")):
     misses.append("reading guide missing or not at the start of Both together")
 _guide = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html[_gi:html.find("Which taxa move with which factor?")]))
-for _w, _why in ((f"All {len(main) + len(un)}, in the dot map; the {len(un)} missing from a whole group are the empty cells", "guide taxa"),
-                 (f"The {len(main)} seen in every group", "guide tested"),
-                 (f"a complete separation reaches p = {fisher_exact([[4, 0], [0, 4]])[1]:.3f} whatever its size", "guide floor"),
-                 (f"the strongest hit here has q = {min(h['q'] for r in A_ROWS for h in r['hits']):.3f}", "guide min q"),
+for _w, _why in ((f"All {len(main) + len(un)} in the dot map; the {len(un)} missing from a whole group are the empty cells", "guide taxa"),
+                 (f"The {len(tested)} seen in every group", "guide tested"),
+                 (f"a complete separation reaches p = {fisher_exact([[4, 0], [0, 4]])[1]:.3f} at best (smallest q {_pr.q.min():.2f})", "guide floor"),
+                 (f"{len(_h)} calls, {int(_h.robust.sum())} of them robust", "guide calls"),
                  (f"{n_ifa} of the {len(un)} taxa missing from a whole group are absent from every unirradiated IFA mouse", "guide IFA absent"),
-                 (f"ALDEx3's {sum(r['n'] for r in A_ROWS)} hits", "guide hit count"),
-                 ("while absences are shown, not tested", "guide absences")):
+                 (f"corrected by false-discovery rate across the {len(tested)} taxa, while the presence model, corrected across "
+                  f"{_pr.feature.nunique()}, has none", "guide correction")):
     if _w not in _guide:
         misses.append(f"{_why}: '{_w}' not in the reading guide")
+if _ab.q.min() >= 1e-8:
+    misses.append("guide says the strongest call has q < 1e-8")
 
 # ---- figures and their captions ----
-_n_g = int(sum(genus_or_above(t) for t in main.taxon))
+_n_g = int(sum(genus_or_above(t) for t in tested))
 expect(f"limited to the {_n_g} taxa named no further than genus", "genus forest count")
 expect(f"The same heatmap for the {_n_g} taxa named", "genus heatmap count")
-_cnt = pd.read_csv(os.path.join(TAB, "collapsed_counts_Greengenes2_Day17.tsv"), sep="\t", index_col=0)
+_cnt = pd.read_csv(os.path.join(TAB, "collapsed_counts_Greengenes2_Day17_minpres6.tsv"), sep="\t", index_col=0)
 _79 = _cnt[(_cnt > 0).sum(axis=1) >= 6]
 if len(_79) != len(main) + len(un):
     misses.append(f"presence heatmap has {len(_79)} taxa, tested + untestable is {len(main) + len(un)}")
 expect(f"The same, for the {int(sum(genus_or_above(t) for t in _79.index))} taxa named", "genus presence count")
 for _k in ("treatment_unirradiated", "treatment_irradiated", "radiation", "interaction"):
     for _v in ("", "_gplus"):
-        if f"figures/ALDEx3_factorial_Greengenes2_Day17_minpres6_gamma0.5{_v}_forest_{_k}.png" not in html:
+        if f"figures/MaAsLin3_factorial_Greengenes2_Day17_min3{_v}_forest_{_k}.png" not in html:
             misses.append(f"forest plot {_k}{_v} not shown")
-for _f in ("ALDEx3_factorial_Greengenes2_Day17_minpres6_gamma0.5_heatmap", "ALDEx3_factorial_Greengenes2_Day17_minpres6_gamma0.5_gplus_heatmap",
+for _f in ("MaAsLin3_factorial_Greengenes2_Day17_min3_heatmap", "MaAsLin3_factorial_Greengenes2_Day17_min3_gplus_heatmap",
            "presence_factorial_Greengenes2_Day17_minpres6_heatmap", "presence_factorial_Greengenes2_Day17_minpres6_gplus_heatmap"):
     if f"figures/{_f}.png" not in html:
         misses.append(f"{_f} not shown")
-# Data before model: the presence dot map leads, the ALDEx3 heatmap follows.
+# Data before model: the presence dot map leads, the MaAsLin3 heatmap follows.
 if not (0 <= html.find("figures/presence_factorial_Greengenes2_Day17_minpres6_heatmap.png")
-        < html.find("figures/ALDEx3_factorial_Greengenes2_Day17_minpres6_gamma0.5_heatmap.png")):
-    misses.append("the presence dot map should come before the ALDEx3 heatmap")
+        < html.find("figures/MaAsLin3_factorial_Greengenes2_Day17_min3_heatmap.png")):
+    misses.append("the presence dot map should come before the MaAsLin3 heatmap")
+# ALDEx3 is retired from this report (ANALYSIS_LOG, 2026-10-22).
+for _m in re.finditer(r".{0,60}(?:ALDEx3|γ).{0,60}", html, re.S):
+    misses.append(f"ALDEx3 still mentioned: {' '.join(_m.group(0).split())}")
 # ANCOM-BC2 is out of this report entirely: no result, figure or file path may name it.
 for _m in re.finditer(r".{0,60}ancom.{0,60}", html, re.I | re.S):
     misses.append(f"ANCOM-BC2 still mentioned: {' '.join(_m.group(0).split())}")
 
 # ---- structural zeros: the dot map only (2026-10-01) ----
-# Taxa missing from a whole group are shown, not tested; the section is the dot map and nothing else.
-expect(f"reaches the same smallest p-value ({fisher_exact([[4, 0], [0, 4]])[1]:.3f}) whatever its abundance", "design floor")
+# Taxa missing from a whole group are shown in the dot map, and the section is the dot map and nothing else;
+# MaAsLin3's presence model covers them and has no call (checked above).
 # Scoped to DA onward: Beta diversity's PERMANOVA legitimately speaks of shuffled labels and permutation p.
 for _m in re.finditer(r".{0,50}(?:Fisher|Firth|shuffled labels|permutation p|2\.6 expected|q = 0\.0037).{0,50}",
                       html[html.index("<h2>Differential abundance</h2>"):], re.S):
@@ -227,7 +244,7 @@ for _m in re.finditer(r".{0,50}(?:Fisher|Firth|shuffled labels|permutation p|2\.
 # The DA-subset binary-Jaccard PERMANOVA is dropped; the interaction's community evidence is Beta diversity.
 for _m in re.finditer(r".{0,50}(?:binary[- ]Jaccard|0\.0057|R² 13%).{0,50}", html, re.S):
     misses.append(f"dropped presence PERMANOVA still cited: {' '.join(_m.group(0).split())}")
-_szs = html[html.index('<h3>Structural zeros: taxa present'):html.index('<h3>ALDEx3: abundance in the 46 taxa')]
+_szs = html[html.index('<h3>Structural zeros: taxa present'):html.index('<h3>MaAsLin3: abundance in the 45 taxa')]
 # Subsections are plain h3; a figure's question sits inside its panel, never as a heading of its own.
 _dahtml = html[html.index("<h2>Differential abundance</h2>"):html.index("<h2>Summary</h2>")]
 if 'class="figq"' in _dahtml:
@@ -268,11 +285,11 @@ if len(_in_every) != 3:
     misses.append("finding 3: three of the four should be in every Inosine mouse, one in none")
 expect("Inosine without irradiation does the same to four of them", "finding 3 inosine")
 expect("The interaction, asked six ways", "six ways")
-for _h in ("How taxa are tested", "Structural zeros: taxa present in some groups", "ALDEx3: abundance in the 46 taxa", "Both together"):
+for _h in ("How taxa are tested", "Structural zeros: taxa present in some groups", "MaAsLin3: abundance in the 45 taxa", "Both together"):
     if _h not in html:
         misses.append(f"DA part heading missing: {_h}")
 _da0 = html.index("<h2>Differential abundance</h2>")
-_order = [html.find(_h, _da0) for _h in ("How taxa are tested", "Structural zeros: taxa present", "ALDEx3: abundance in", ">Both together</h3>", "<h3>Findings</h3>", "<h2>Summary</h2>")]
+_order = [html.find(_h, _da0) for _h in ("How taxa are tested", "Structural zeros: taxa present", "MaAsLin3: abundance in", ">Both together</h3>", "<h3>Findings</h3>", "<h2>Summary</h2>")]
 if -1 in _order:
     misses.append("a DA part heading is missing")
 _dsec = html[_da0:html.index("<h2>Summary</h2>")]

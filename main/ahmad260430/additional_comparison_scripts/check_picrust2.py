@@ -24,13 +24,13 @@ num = lambda v: f"+{v:.2f}" if v >= 0 else f"{MINUS}{-v:.2f}"
 pp = lambda p: "0.0001" if p <= 1e-4 else (f"{p:.4f}" if p < 0.001 else (f"{p:.3f}" if p < 0.1 else f"{p:.2f}"))
 REPORTS = {
     "factorial": dict(dir="comparison-Treatment-x-Radiation-factorial", rows=[
-        ("IFA vs Control", "None", "IFA vs Control"), ("Inosine vs Control", "None", "Inosine vs Control"),
-        ("IFA vs Inosine", "None", "IFA vs Inosine"), ("IFA vs Control", "IR", "IFA+IR vs IR"),
-        ("Inosine vs Control", "IR", "Inosine+IR vs IR"), ("IFA vs Inosine", "IR", "IFA+IR vs Inosine+IR"),
-        ("IR within Control", "", "IR vs Control"), ("IR within IFA", "", "IFA+IR vs IFA"),
-        ("IR within Inosine", "", "Inosine+IR vs Inosine"), ("Interaction: IFA vs Control", "", "Interaction: IFA vs Control"),
-        ("Interaction: Inosine vs Control", "", "Interaction: Inosine vs Control"),
-        ("Interaction: IFA vs Inosine", "", "Interaction: IFA vs Inosine")]),
+        ("IFA vs Control", "None", "Control vs IFA"), ("Inosine vs Control", "None", "Control vs Inosine"),
+        ("IFA vs Inosine", "None", "Inosine vs IFA"), ("IFA vs Control", "IR", "IR vs IFA+IR"),
+        ("Inosine vs Control", "IR", "IR vs Inosine+IR"), ("IFA vs Inosine", "IR", "Inosine+IR vs IFA+IR"),
+        ("IR within Control", "", "Control vs IR"), ("IR within IFA", "", "IFA vs IFA+IR"),
+        ("IR within Inosine", "", "Inosine vs Inosine+IR"), ("Interaction: IFA vs Control", "", "Interaction: Control vs IFA"),
+        ("Interaction: Inosine vs Control", "", "Interaction: Control vs Inosine"),
+        ("Interaction: IFA vs Inosine", "", "Interaction: Inosine vs IFA")]),
     "day17-day25": dict(dir="comparison-day17-day25", rows=[
         ("Day 17 to 25 in IFA", "", "Day 17 to 25, IFA"), ("Day 17 to 25 in IFA+IR", "", "Day 17 to 25, IFA+IR"),
         ("Average Day 17 to 25 shift", "", "Average Day 17 to 25 shift"),
@@ -133,14 +133,14 @@ def check(html, report):
         return x.iloc[0]
     carr = lambda lv, fid, ss: int((ab[lv].loc[fid, ss] > 0).sum()) if fid in ab[lv].index else 0
     if report == "factorial":
-        expect(f"IFA changes {R('MetaCyc', 'IFA vs Control')['robust']} pathways, {R('EC', 'IFA vs Control')['robust']:,} enzymes and "
-               f"{R('KO', 'IFA vs Control')['robust']:,} KOs, where the typical pathway's share is {-R('MetaCyc', 'IFA vs Control')['median']:.2f} log2 lower",
+        expect(f"IFA changes {R('MetaCyc', 'Control vs IFA')['robust']} pathways, {R('EC', 'Control vs IFA')['robust']:,} enzymes and "
+               f"{R('KO', 'Control vs IFA')['robust']:,} KOs, where the typical pathway's share is {-R('MetaCyc', 'Control vs IFA')['median']:.2f} log2 lower",
                "IFA per-feature counts")
         brk = [feat(ko, f, "IFA vs Control", "None") for f in ("ko:K03784", "ko:K01239", "ko:K01488", "ko:K00087")]
-        if not all(b.robust and b.coef < R("KO", "IFA vs Control")["median"] - 1.5 for b in brk):
+        if not all(b.robust and b.coef < R("KO", "Control vs IFA")["median"] - 1.5 for b in brk):
             misses.append("PICRUSt2 factorial: an inosine-breakdown gene is not robust and well below the typical KO under IFA")
         c = [b.coef for b in brk]
-        expect(f"robustly {-max(c):.2f} to {-min(c):.2f} log2 lower, where the typical KO is {-R('KO', 'IFA vs Control')['median']:.2f} log2 lower",
+        expect(f"robustly {-max(c):.2f} to {-min(c):.2f} log2 lower, where the typical KO is {-R('KO', 'Control vs IFA')['median']:.2f} log2 lower",
                "inosine breakdown under IFA")
         nuc = [feat(ko, f, "IFA vs Control", "None") for f in ("ko:K01081", "ko:K03787", "ko:K11751")]
         if not all(n.robust and n.coef > 0 for n in nuc):
@@ -153,7 +153,7 @@ def check(html, report):
         ir = [feat(ko, f, "Inosine vs Control", "IR") for f in ("ko:K03784", "ko:K01239", "ko:K01488")]
         if not all(x.robust and x.coef < 0 for x in ir):
             misses.append("PICRUSt2 factorial: Inosine+IR vs IR does not lower the three breakdown genes robustly")
-        expect(f"({num(max(x.coef for x in ir))} to {num(min(x.coef for x in ir))} log2, typical KO {num(R('KO', 'Inosine+IR vs IR')['median'])})",
+        expect(f"({num(max(x.coef for x in ir))} to {num(min(x.coef for x in ir))} log2, typical KO {num(R('KO', 'IR vs Inosine+IR')['median'])})",
                "Inosine+IR breakdown genes")
         aer = max(carr(db, f, samples) for db, f in AEROBIC)
         expect(f"ring-cleavage enzymes are predicted in {aer} of the 24 mice, and phenolic acid decarboxylase in {carr('KO', 'ko:K13727', samples)}",
