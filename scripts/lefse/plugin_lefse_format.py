@@ -6,7 +6,6 @@ import functools
 from lefsebiom.ConstantsBreadCrumbs import *
 from lefsebiom.AbundanceTable import *
 
-print("Note: This ONT Analysis for LEfSe code is modified from PetSci Co., Ltd., Taiwan - https://petsci.tw - 2025-10")
 #***************************************************************************************************************
 #*   Log of change                                                                                             *
 #*   January 16, 2014  - George Weingart - george.weingart@gmail.com                                           *
