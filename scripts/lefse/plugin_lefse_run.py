@@ -146,6 +146,20 @@ def contast_within_classes_or_few_per_class(feats,inds,min_cl,ncl):
                 return True
     return False
 
+# Local addition, not upstream: True if R's MASS::lda would stop on this
+# subsample, i.e. it holds a single class, or some feature is constant within
+# every class (zero pooled within-class variance).
+def lda_would_fail(feats,inds):
+    cls = [feats['class'][i] for i in inds]
+    if len(set(cls)) < 2:
+        return True
+    for k,v in feats.items():
+        if k in ('class','subclass','subject'):
+            continue
+        if all(len(set(v[i] for i,ci in zip(inds,cls) if ci == c)) <= 1 for c in set(cls)):
+            return True
+    return False
+
 def test_lda_r(cls,feats,cl_sl,boots,fract_sample,lda_th,tol_min,nlogs):
     fk = list(feats.keys())
     means = dict([(k,[]) for k in feats.keys()])
@@ -191,11 +205,27 @@ def test_lda_r(cls,feats,cl_sl,boots,fract_sample,lda_th,tol_min,nlogs):
         for i in range(boots):
             means[k].append([])
 
+    # Local change, not upstream: upstream silently keeps the last draw when
+    # none of the 1000 passes the per-class check, and R's lda then stops if
+    # that draw is degenerate. Here that case is counted and warned about, and
+    # a degenerate draw is redrawn until lda can fit it. A last draw that lda
+    # can fit is kept, so runs that worked upstream are unchanged.
+    n_unchecked = n_redrawn = 0
     for i in range(boots):
         for rtmp in range(1000):
             rand_s = [lrand.randint(0,lfk-1) for v in range(rfk)]
             if not contast_within_classes_or_few_per_class(feats,rand_s,min_cl,ncl):
                 break
+        else:
+            n_unchecked += 1
+            if lda_would_fail(feats,rand_s):
+                n_redrawn += 1
+                for rtmp in range(1000):
+                    rand_s = [lrand.randint(0,lfk-1) for v in range(rfk)]
+                    if not lda_would_fail(feats,rand_s):
+                        break
+                else:
+                    sys.exit("LEfSe LDA: no subsample of "+str(rfk)+" samples that lda can fit was found in 1000 draws; this design is too small for LEfSe's LDA step.")
 
         rand_s = [r+1 for r in rand_s]
         means[k][i] = []
@@ -227,6 +257,9 @@ def test_lda_r(cls,feats,cl_sl,boots,fract_sample,lda_th,tol_min,nlogs):
             for j,k in enumerate(fk):
                 gm = abs(res[p[0]][j] - res[p[1]][j])
                 means[k][i].append((gm+coeff[j])*0.5)
+
+    if n_unchecked:
+        sys.stderr.write("WARNING: LEfSe LDA: in "+str(n_unchecked)+" of "+str(boots)+" bootstrap iterations no subsample of "+str(rfk)+" samples passed LEfSe's per-class check in 1000 draws, so LDA ran on an unchecked subsample ("+str(n_redrawn)+" redrawn because lda could not fit the first one). LDA scores rest on weaker subsamples than LEfSe intends.\n")
 
     res = {}
 
