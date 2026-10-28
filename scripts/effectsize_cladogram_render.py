@@ -301,8 +301,6 @@ def render_effectsize_cladogram(res_path, barplot_svg, cladogram_svg, barplot_pn
                 "--format", f["fmt"],
                 "--dpi",    "300",
                 "--colors", *colors,
-                "--left_space_prop",  "0.15",
-                "--right_space_prop", "0.45",
                 "--class_legend_font_size", "6",   # shrink group legend
                 "--label_font_size",  f["label_font_size"],  # shrink feature key text
                 "--labeled_start_lev", "3",        # only label from level 3 inward

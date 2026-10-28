@@ -518,8 +518,9 @@ def plot_histo_hor(colors, path, params, data, bcl, report_features):
         edgecolor=params["fore_color"],
         dpi=params["dpi"],
         # The title block is sized for a short chart; on a tall one its kicker
-        # line lands above the canvas. Crop to what was drawn instead.
-        **({"bbox_inches": "tight", "pad_inches": 0.2} if sz else {}),
+        # line lands above the canvas, as does a wrapped legend's extra rows.
+        # Crop to what was drawn instead.
+        **({"bbox_inches": "tight", "pad_inches": 0.2} if sz or compact else {}),
     )
     plt.close()
 

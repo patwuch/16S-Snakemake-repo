@@ -713,10 +713,9 @@ def draw_tree(colors, out_file, tree, params):
     ax = fig.add_subplot(
         111, polar=True, frame_on=False, facecolor=params["back_color"]
     )
-    # Reserve figure margins for the two legends: the taxa key on the right
-    # (--right_space_prop) and the group legend on the left (--left_space_prop).
-    # These were parsed but never applied, so the taxa key overran the border.
-    plt.subplots_adjust(left=params["l_prop"], right=1.0 - params["r_prop"])
+    # No margins are reserved for the legends. They are placed outside the drawn
+    # cladogram once it has been measured, and the tight crop at save grows the
+    # canvas to hold them, so --left_space_prop / --right_space_prop are unused.
     ax.grid(False)
     xticks([])
     yticks([])
@@ -736,17 +735,42 @@ def draw_tree(colors, out_file, tree, params):
     def get_col_attr(x):
         return hasattr(x, "set_color") and not hasattr(x, "set_facecolor")
 
+    ax.set_title(
+        params["title"], size=params["title_font_size"], color=params["fore_color"]
+    )
+    db_kicker = None
+    if params["db_label"]:
+        db_kicker = ax.annotate(
+            params["db_label"],
+            xy=(0.5, 1.0),
+            xycoords=("axes fraction", "axes fraction"),
+            xytext=(0, float(params["title_font_size"]) * 2.2),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            size=float(params["title_font_size"]) * 0.6,
+            color="gray",
+        )
+
+    # Everything drawn so far -- tree, outside clade labels, title, kicker -- is
+    # the cladogram. Measure it once, before any legend exists, and put the
+    # legends and footnote outside this box. Nothing is ever pulled back inside
+    # the canvas: the tight crop at save grows the image to hold them instead,
+    # so no key size can land on the drawing.
+    fig.canvas.draw()
+    clad = ax.get_tightbbox(fig.canvas.get_renderer()).transformed(
+        fig.transFigure.inverted()
+    )
+    fw, fh = fig.get_size_inches()
+    pad_x, pad_y = 0.1 / fw, 0.1 / fh
+
     h, l = ax.get_legend_handles_labels()
     taxa_leg = None
     if len(l) > 0:
         # Each column allows at most 35 species (rows)
         ncol = len(l) // 35 + 1
-        # Start the taxa key at the inner edge of the reserved gutter, hard against
-        # the cladogram, and let it grow outward. Anchoring it to the figure's right
-        # edge instead left a short key stranded across an empty band of gutter.
-        # The final x is settled once the canvas has its true width, below.
         taxa_leg = ax.legend(
-            bbox_to_anchor=(1.0 - params["r_prop"], 0.995),
+            bbox_to_anchor=(clad.x1 + pad_x, clad.y1),
             bbox_transform=fig.transFigure,
             frameon=False,
             loc="upper left",
@@ -788,33 +812,14 @@ def draw_tree(colors, out_file, tree, params):
         else:
             cl.append("hollow ring / hatched: structural zero (no log2FC)")
 
-    ax.set_title(
-        params["title"], size=params["title_font_size"], color=params["fore_color"]
-    )
-    db_kicker = None
-    if params["db_label"]:
-        db_kicker = ax.annotate(
-            params["db_label"],
-            xy=(0.5, 1.0),
-            xycoords=("axes fraction", "axes fraction"),
-            xytext=(0, float(params["title_font_size"]) * 2.2),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            size=float(params["title_font_size"]) * 0.6,
-            color="gray",
-        )
-
     class_leg = None
     if params["class_legend_vis"]:
-        # Pin to the bottom-left figure margin (reserved by --left_space_prop).
-        # A bare loc=2 anchors inside the polar axes, dropping the legend on top
-        # of the cladogram.
+        # Left of the cladogram, level with its bottom edge.
         class_leg = l2 = legend(
             nll,
             cl,
-            loc="lower left",
-            bbox_to_anchor=(0.005, 0.01),
+            loc="lower right",
+            bbox_to_anchor=(clad.x0 - pad_x, clad.y0),
             bbox_transform=fig.transFigure,
             prop={"size": params["class_legend_font_size"]},
             frameon=False,
@@ -822,40 +827,21 @@ def draw_tree(colors, out_file, tree, params):
         if l2 != None:
             for o in l2.findobj(get_col_attr):
                 o.set_color(params["fore_color"])
-    # add bbox to deal with legnd overflow
-
-    # Widen the canvas so that, with margins now reserved on both sides for the
-    # legends, the cladogram itself still renders at a legible size.
-    fig = plt.gcf()
-    w, h = fig.get_size_inches()
-    fig.set_size_inches(w * 1.35, h * 0.95)
-
-    # Settle the taxa key's x now that the canvas has its final width, since that
-    # width is what decides how much of the gutter the key actually needs. It sits
-    # against the cladogram unless it is wide enough to reach the border, in which
-    # case it backs off just far enough to stay inside — the long-key case the
-    # right-edge anchor used to handle for every key, wide or narrow.
-    if taxa_leg is not None:
-        fig.canvas.draw()
-        key_w = taxa_leg.get_window_extent().transformed(fig.transFigure.inverted()).width
-        x = min(1.0 - params["r_prop"], max(0.005, 0.995 - key_w))
-        taxa_leg.set_bbox_to_anchor((x, 0.995), transform=fig.transFigure)
-
     footnote = None
     if params["footnote"]:
+        # Under the cladogram, below its lowest outside label.
         footnote = fig.text(
-            0.5,
-            0.01,
+            (clad.x0 + clad.x1) / 2,
+            clad.y0 - pad_y,
             params["footnote"],
             ha="center",
-            va="bottom",
+            va="top",
             size=params["footnote_font_size"],
             color=params["fore_color"],
         )
 
-    # The gutter is sized for the widest taxa key a run might produce, so a narrow
-    # key leaves dead canvas beyond it. Crop to what was actually drawn.
-    # Both legends have to be named here: a legend parented to the axes is not
+    # The legends and footnote may lie outside the canvas; crop to what was
+    # actually drawn, which grows the image to hold them. Both legends have to be named here: a legend parented to the axes is not
     # part of the figure's own tight bbox, so cropping without them slices the
     # taxa key off mid-word. The footnote goes in the same list because
     # bbox_extra_artists REPLACES matplotlib's default artist set rather than
