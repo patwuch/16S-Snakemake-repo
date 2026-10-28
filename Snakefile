@@ -891,6 +891,7 @@ include: "rules/LEfSe.smk"
 # ##############################################
 
 include: "rules/PICRUSt2.smk"
+include: "rules/run_audit.smk"
 
 ##############################################
 # STEP 7 - Compile visualisations report PDF
