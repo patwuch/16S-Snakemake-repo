@@ -15,8 +15,11 @@ rule calc_alpha_diversity_non_phylogenetic:
         """
         [QIIME] Calculating non-phylogenetic alpha diversity metrics (Shannon, Simpson, Pielou's Evenness, Chao1) from rarefied feature table...
         """
+    log:
+        STUDY_DIR / "logs/calc_alpha_diversity_non_phylogenetic.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity alpha --i-table {input.table} --p-metric shannon --o-alpha-diversity {output.shannon}
         qiime diversity alpha --i-table {input.table} --p-metric simpson --o-alpha-diversity {output.simpson}
         qiime diversity alpha --i-table {input.table} --p-metric pielou_e --o-alpha-diversity {output.evenness}
@@ -37,8 +40,11 @@ rule calc_beta_diversity_non_phylogenetic:
     message:
         """
         [QIIME] Calculating non-phylogenetic beta diversity distance matrices (Jaccard, Bray-Curtis) from rarefied feature table..."""
+    log:
+        STUDY_DIR / "logs/calc_beta_diversity_non_phylogenetic.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity beta \
             --i-table {input.table_rarefied} \
             --p-metric jaccard \
@@ -91,8 +97,11 @@ rule export_db_table_for_summary_tsv:
         """
         [QIIME] Exporting {wildcards.db} feature table to TSV for summary statistics calculation...
         """
+    log:
+        STUDY_DIR / "logs/export_db_table_for_summary_tsv/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         tmpdir=$(mktemp -d)
         qiime tools export \
             --input-path {input.table} \
@@ -120,8 +129,11 @@ rule generate_db_rarefy_depth:
         """
         [QIIME] Calculating rarefaction depth for {wildcards.db} feature table based on {params.percentile} percentile of sample sums...
         """
+    log:
+        STUDY_DIR / "logs/generate_db_rarefy_depth/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         python - << 'EOF'
 import pandas as pd
 import numpy as np
@@ -151,8 +163,11 @@ rule rarefy_phylogenetic_table:
         """
         [QIIME] Rarefying {wildcards.db} feature table to depth {params.depth}...
         """
+    log:
+        STUDY_DIR / "logs/rarefy_phylogenetic_table/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table rarefy \
             --i-table {input.table} \
             --p-sampling-depth {params.depth} \
@@ -173,8 +188,11 @@ rule calc_alpha_diversity_phylogenetic:
         """
         [QIIME] Calculating phylogenetic alpha diversity metric (Faith's PD) from rarefied phylogenetic feature table...
         """
+    log:
+        STUDY_DIR / "logs/calc_alpha_diversity_phylogenetic/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity alpha-phylogenetic \
             --i-table {input.table} \
             --i-phylogeny {input.phylogeny} \
@@ -199,8 +217,11 @@ rule calc_beta_diversity_phylogenetic:
         """
         [QIIME] Calculating phylogenetic beta diversity distance matrices (Unweighted and Weighted UniFrac) from rarefied phylogenetic feature table...
         """
+    log:
+        STUDY_DIR / "logs/calc_beta_diversity_phylogenetic/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity beta-phylogenetic \
             --i-table {input.table_rarefied} \
             --i-phylogeny {input.phylogeny} \
@@ -228,8 +249,11 @@ rule pcoa_beta_diversity_non_phylogenetic:
     message:
         """
         [QIIME] Calculating non-phylogenetic beta diversity distance matrices (Jaccard, Bray-Curtis) from distance matrices..."""
+    log:
+        STUDY_DIR / "logs/pcoa_beta_diversity_non_phylogenetic.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity pcoa \
             --i-distance-matrix {input.braycurtis} \
             --o-pcoa {output.braycurtis_pcoa}
@@ -253,8 +277,11 @@ rule pcoa_beta_diversity_phylogenetic:
         """
         [QIIME] Calculating phylogenetic beta diversity distance matrices (Unweighted and Weighted UniFrac) from distance matrices...
         """
+    log:
+        STUDY_DIR / "logs/pcoa_beta_diversity_phylogenetic/{db}.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime diversity pcoa \
             --i-distance-matrix {input.unweighted} \
             --o-pcoa {output.unweighted_pcoa}
@@ -302,6 +329,8 @@ rule plot_alpha_diversity_metric:
         """
         [QIIME] Plotting {wildcards.metric} alpha diversity for {wildcards.db} grouped by {params.group_by}...
         """
+    log:
+        STUDY_DIR / "logs/plot_alpha_diversity_metric/{db}_{group_col}_{metric}.log"
     script:
         SCRIPTS_DIR / "plot_alpha_diversity_metric.py"
 
@@ -342,6 +371,8 @@ rule plot_beta_diversity_metric:
         """
         [QIIME] Plotting {wildcards.metric} beta diversity PCoA for {wildcards.db} grouped by {params.group_by}...
         """
+    log:
+        STUDY_DIR / "logs/plot_beta_diversity_metric/{db}_{group_col}_{metric}.log"
     script:
         SCRIPTS_DIR / "plot_beta_diversity_metric.py"
 
@@ -372,5 +403,7 @@ rule run_permanova_permdisp:
         """
         [QIIME] Running PERMANOVA and PERMDISP tests for {wildcards.db} beta diversity distance matrices...
         """
+    log:
+        STUDY_DIR / "logs/run_permanova_permdisp/{db}.log"
     script:
         str(SCRIPTS_DIR / "run_permanova_permdisp.py")

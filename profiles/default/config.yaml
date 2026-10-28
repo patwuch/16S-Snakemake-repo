@@ -1,0 +1,6 @@
+# Snakemake loads this workflow profile automatically for local runs
+# (direct or via scripts/run_snakemake.sh). profiles/slurm replaces it when
+# passed as --workflow-profile, so settings here are repeated there.
+
+# Copy a failed job's own log into the main .snakemake/log/*.log.
+show-failed-logs: true

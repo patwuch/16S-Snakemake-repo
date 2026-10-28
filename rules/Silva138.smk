@@ -30,8 +30,11 @@ if region == "region_V3V4":
             mem_mb = 2000
         message:
             "[Silva138] Re-wrapping analysis rep-seqs into a QIIME 2 2021.4-native artifact for legacy classify-sklearn..."
+        log:
+            STUDY_DIR / "logs/Silva138_reimport_rep_seqs_legacy.log"
         shell:
             """
+            exec > {log} 2>&1
             set -euo pipefail
             python -c "import zipfile, sys; z = zipfile.ZipFile(sys.argv[1]); name = next(n for n in z.namelist() if n.endswith('/data/dna-sequences.fasta')); open(sys.argv[2], 'wb').write(z.read(name))" {input.rep_seqs} {params.fasta}
             qiime tools import \
@@ -55,8 +58,11 @@ if region == "region_V3V4":
             mem_mb = 20000
         message:
             "[Silva138] Classifying 16S region V3V4 sequences using Silva138 Naive Bayes Classifier (legacy scikit-learn 0.24.1 container)..."
+        log:
+            STUDY_DIR / "logs/Silva138_V3V4_taxonomy.log"
         shell:
             """
+            exec > {log} 2>&1
             set -euo pipefail
             qiime feature-classifier classify-sklearn \
                 --i-classifier {input.silva138_nb_classifier} \
@@ -91,8 +97,11 @@ elif region == "full_length":
             mem_mb = 20000
         message:
             "[Silva138] Classifying 16S Full-length sequences using Silva138 Naive Bayes Classifier..."
+        log:
+            STUDY_DIR / "logs/Silva138_Full_taxonomy.log"
         shell:
             """
+            exec > {log} 2>&1
             qiime feature-classifier classify-sklearn \
                 --i-classifier {input.silva138_nb_classifier} \
                 --i-reads {input.rep_seqs} \
@@ -144,8 +153,11 @@ rule Silva138_phylogeny:
         runtime = 720
     message:
         "[Silva138] Building phylogenetic tree for 16S (V3V4 or Full-length) sequences via fragment-insertion (SEPP)..."
+    log:
+        STUDY_DIR / "logs/Silva138_phylogeny.log"
     shell:
         """
+        exec > {log} 2>&1
         set -euo pipefail
         # The Snakefile's global shell.prefix() disables Snakemake's default
         # set -euo pipefail for every rule, so a failure here (e.g. sepp being
@@ -225,8 +237,11 @@ rule Silva138_taxa_barplot_qiime:
         mem_mb = 4000
     message:
         "[Silva138] Generating QIIME taxa barplot visualization..."
+    log:
+        STUDY_DIR / "logs/Silva138_taxa_barplot_qiime.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime taxa barplot \
             --i-table {input.table} \
             --i-taxonomy {input.taxonomy} \
@@ -246,8 +261,11 @@ rule Silva138_export_taxonomy_as_tsv:
         mem_mb = 2000
     message:
         "[Silva138] Exporting Silva138 taxonomy as TSV..."
+    log:
+        STUDY_DIR / "logs/Silva138_export_taxonomy_as_tsv.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.taxonomy_qza} \
             --output-path {TABLES_DIR}/exported-taxonomy-temp-silva138

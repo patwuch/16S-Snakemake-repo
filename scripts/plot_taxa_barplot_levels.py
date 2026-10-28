@@ -1,3 +1,9 @@
+import os
+# Send this job's stdout/stderr, subprocesses included, to its Snakemake log.
+_log = os.open(snakemake.log[0], os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+os.dup2(_log, 1)
+os.dup2(_log, 2)
+
 import re
 import pandas as pd
 import numpy as np

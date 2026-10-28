@@ -24,5 +24,7 @@ rule plot_taxa_barplot:
         QIIME_CONTAINER
     resources:
         mem_mb = 4000
+    log:
+        STUDY_DIR / "logs/plot_taxa_barplot/{db}_{factor}_{taxa_level}.log"
     script:
         SCRIPTS_DIR / "plot_taxa_barplot_levels.py"

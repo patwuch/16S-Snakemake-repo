@@ -709,8 +709,11 @@ rule pipeline_complete:
         """
         [MAIN] Pipeline complete! All outputs have been generated successfully.
         """
+    log:
+        STUDY_DIR / "logs/pipeline_complete.log"
     shell:
         """
+        exec > {log} 2>&1
         touch {output.sentinel}
         """
 
@@ -754,6 +757,8 @@ rule generate_manifest:
         study_dir = STUDY_DIR
     container:
         QIIME_CONTAINER
+    log:
+        STUDY_DIR / "logs/generate_manifest.log"
     script:
         "scripts/build_manifest.py"
         
@@ -779,8 +784,11 @@ rule filter_table_to_metadata:
     message:
         """[QIIME] Filtering feature table to analysis candidates...
         """
+    log:
+        STUDY_DIR / "logs/filter_table_to_metadata.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table filter-samples \
             --i-table {input.table} \
             --m-metadata-file {input.metadata} \
@@ -798,8 +806,11 @@ rule visualise_table_for_analysis:
         """
         [QIIME] Visualizing feature table of analysis candidates...
         """
+    log:
+        STUDY_DIR / "logs/visualise_table_for_analysis.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table summarize \
             --i-table {input.table} \
             --o-visualization {output.viz}
@@ -817,8 +828,11 @@ rule filter_seqs_to_table:
         """
         [QIIME] Filtering representative sequences to analysis candidates...
         """
+    log:
+        STUDY_DIR / "logs/filter_seqs_to_table.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table filter-seqs \
             --i-data {input.seqs} \
             --i-table {input.table} \
@@ -836,8 +850,11 @@ rule visualise_seqs_for_analysis:
         """
         [QIIME] Visualizing representative sequences of analysis candidates...
         """
+    log:
+        STUDY_DIR / "logs/visualise_seqs_for_analysis.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table tabulate-seqs \
             --i-data {input.seqs} \
             --o-visualization {output.viz}
@@ -894,5 +911,7 @@ rule compile_visualisations_pdf:
         trunc_len_csv = str(TABLES_DIR / "trunc_len.csv") if sequence_type == "NGS" else None,
     container:
         str(WORKFLOW_DIR / "containers/report-env.sif")
+    log:
+        STUDY_DIR / "logs/compile_visualisations_pdf.log"
     script:
         "scripts/compile_visualisations_pdf.py"

@@ -15,8 +15,11 @@ rule picrust2_run:
         """
         [PICRUSt2] Running PICRUSt2 to predict functional profiles (ECs, KOs, Pathways) from ASV-level FASTA and BIOM...
         """
+    log:
+        STUDY_DIR / "logs/picrust2_run.log"
     shell:
         """
+        exec > {log} 2>&1
         picrust2_pipeline.py \
             -s {input.seqs_fna} \
             -i {input.table_biom} \
@@ -39,8 +42,11 @@ rule picrust2_describe:
         """
         [PICRUSt2] Adding descriptions to PICRUSt2 predicted functional profiles (ECs, KOs, Pathways)...
         """
+    log:
+        STUDY_DIR / "logs/picrust2_describe.log"
     shell:
         """
+        exec > {log} 2>&1
         mkdir -p $(dirname {output.ko_described})
 
         add_descriptions.py \
@@ -81,5 +87,7 @@ rule picrust2_plot:
     message:
         """
         [PICRUSt2] Plotting PICRUSt2 predicted functional profiles (ECs, KOs, Pathways) as a heatmap for the top {params.top_n} most abundant features across samples..."""
+    log:
+        STUDY_DIR / "logs/picrust2_plot.log"
     script:
         "../scripts/plot_picrust2.R"

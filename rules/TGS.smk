@@ -10,8 +10,11 @@ rule TGS_import:
         mem_mb = 2000
     message:
         "[QIIME] Demultiplexed TGS sequences found. Importing as QIIME Artifact..."
+    log:
+        STUDY_DIR / "logs/TGS_import.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools import \
             --type 'SampleData[SequencesWithQuality]' \
             --input-format SingleEndFastqManifestPhred33V2 \
@@ -32,8 +35,11 @@ rule TGS_summarize_demux:
         mem_mb = 4000
     message:
         "[QIIME] Generating summary of demultiplexed TGS sequences..."
+    log:
+        STUDY_DIR / "logs/TGS_summarize_demux.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime demux summarize \
             --i-data {input.demux_qza} \
             --o-visualization {output.demux_quality_qzv}
@@ -70,8 +76,11 @@ rule TGS_dada2:
         runtime = lambda wildcards, attempt: 240 * attempt
     message:
         "[QIIME] Running DADA2 denoising for TGS data..."
+    log:
+        STUDY_DIR / "logs/TGS_dada2.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime dada2 denoise-ccs \
             --i-demultiplexed-seqs {input.demux_qza} \
             --p-front AGAGTTTGATCMTGGCTCAG \
@@ -99,8 +108,11 @@ rule TGS_visualise_dada2_outputs:
         mem_mb = 4000
     message:
         "[QIIME] Generating visualizations of DADA2 outputs..."
+    log:
+        STUDY_DIR / "logs/TGS_visualise_dada2_outputs.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table summarize \
             --i-table {input.table} \
             --o-visualization {output.table_qzv}
@@ -128,8 +140,11 @@ rule TGS_export_table_summary:
         mem_mb = 2000
     message:
         "[QIIME] Exporting TGS table summary..."
+    log:
+        STUDY_DIR / "logs/TGS_export_table_summary.log"
     shell:
         """
+        exec > {log} 2>&1
         mkdir -p {params.outdir}
         qiime tools export \
             --input-path {input.table_qza} \
@@ -155,8 +170,11 @@ rule TGS_generate_rarefy_depth_nonphylogenetic:
         mem_mb = 2000
     message:
         "[PYTHON] Reading TGS non-phylogenetic rarefaction depth from QIIME summary..."
+    log:
+        STUDY_DIR / "logs/TGS_generate_rarefy_depth_nonphylogenetic.log"
     shell:
         """
+        exec > {log} 2>&1
         python - << EOF
 import pandas as pd
 import numpy as np
@@ -188,8 +206,11 @@ rule TGS_generate_rarefied_version_nonphylogenetic:
         mem_mb = 4000
     message:
         "[QIIME] Generating TGS rarefied feature table for non-phylogenetic diversity metrics..."
+    log:
+        STUDY_DIR / "logs/TGS_generate_rarefied_version_nonphylogenetic.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table rarefy \
             --i-table {input.table} \
             --p-sampling-depth {params.depth} \
@@ -216,8 +237,11 @@ rule TGS_export_table_to_biom:
         mem_mb = 2000
     message:
         "[QIIME] Exporting TGS feature table to BIOM format..."
+    log:
+        STUDY_DIR / "logs/TGS_export_table_to_biom.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.table_qza} \
             --output-path exported_table_temp
@@ -236,8 +260,11 @@ rule TGS_export_rep_seqs_to_fna:
         mem_mb = 2000
     message:
         "[QIIME] Exporting TGS representative sequences to FASTA..."
+    log:
+        STUDY_DIR / "logs/TGS_export_rep_seqs_to_fna.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.rep_seqs_qza} \
             --output-path exported_seqs_temp

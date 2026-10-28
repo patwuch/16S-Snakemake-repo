@@ -11,8 +11,11 @@ rule NGS_import:
         mem_mb = 2000
     message:
         "[QIIME] Demultiplexed NGS sequences found. Importing as QIIME Artifact..."
+    log:
+        STUDY_DIR / "logs/NGS_import.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools import \
             --type 'SampleData[PairedEndSequencesWithQuality]' \
             --input-format PairedEndFastqManifestPhred33V2 \
@@ -34,8 +37,11 @@ rule NGS_cutadapt:
         error_rate = cutadapt_error_rate
     message:
         "[QIIME] Trimming primers using cutadapt..."
+    log:
+        STUDY_DIR / "logs/NGS_cutadapt.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime cutadapt trim-paired \
             --i-demultiplexed-sequences {input.demux_qza} \
             --p-cores {threads} \
@@ -56,8 +62,11 @@ rule NGS_summarize_trimmed_demux:
         mem_mb = 4000
     message:
         "[QIIME] Generating summary of trimmed demultiplexed NGS sequences..."
+    log:
+        STUDY_DIR / "logs/NGS_summarize_trimmed_demux.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime demux summarize \
             --i-data {input.trimmed_qza} \
             --o-visualization {output.trimmed_quality_qzv}
@@ -76,8 +85,11 @@ rule NGS_export_trimmed_quality:
         quality_tsv_dir = QIIME_DIR / "trimmed-quality-tsv"
     message:
         "[QIIME] Exporting NGS quality summary TSV to determine truncation length..."
+    log:
+        STUDY_DIR / "logs/NGS_export_trimmed_quality.log"
     shell:
         """
+        exec > {log} 2>&1
         mkdir -p {params.quality_tsv_dir}
         qiime tools export \
             --input-path {input.trimmed_quality_qzv} \
@@ -99,8 +111,11 @@ rule NGS_generate_trunc_len:
         q_threshold = trunc_len_q_threshold
     message:
         "[QIIME] Generating NGS truncation length based on quality summary..."
+    log:
+        STUDY_DIR / "logs/NGS_generate_trunc_len.log"
     shell:
         """
+        exec > {log} 2>&1
         python scripts/generate_trunc_length.py \
             {params.quality_tsv_dir}/data.jsonp \
             {output.trunc_len_csv} {params.q_threshold}
@@ -154,8 +169,11 @@ rule NGS_dada2:
         runtime = lambda wildcards, attempt: 240 * attempt
     message:
         "[QIIME] Running DADA2 denoising for NGS data..."
+    log:
+        STUDY_DIR / "logs/NGS_dada2.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime dada2 denoise-paired \
             --i-demultiplexed-seqs {input.trimmed_qza} \
             --p-trim-left-f {params.trim_left_f} \
@@ -186,8 +204,11 @@ rule NGS_visualise_dada2_outputs:
         mem_mb = 4000
     message:
         "[QIIME] Generating visualizations of DADA2 outputs..."
+    log:
+        STUDY_DIR / "logs/NGS_visualise_dada2_outputs.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table summarize \
             --i-table {input.table} \
             --o-visualization {output.table_qzv}
@@ -215,8 +236,11 @@ rule NGS_export_table_summary:
         mem_mb = 2000
     message:
         "[QIIME] Exporting NGS table summary..."
+    log:
+        STUDY_DIR / "logs/NGS_export_table_summary.log"
     shell:
         """
+        exec > {log} 2>&1
         mkdir -p {params.outdir}
         qiime tools export \
             --input-path {input.table_qza} \
@@ -243,8 +267,11 @@ rule NGS_generate_rarefy_depth:
         mem_mb = 2000
     message:
         "[PYTHON] Reading NGS non-phylogenetic rarefaction depth from QIIME summary..."
+    log:
+        STUDY_DIR / "logs/NGS_generate_rarefy_depth.log"
     shell:
         """
+       exec > {log} 2>&1
        python - << EOF
 import pandas as pd
 import numpy as np
@@ -276,8 +303,11 @@ rule NGS_make_rarefied_version:
         mem_mb = 4000
     message:
         "[QIIME] Generating NGS rarefied feature table for non-phylogenetic diversity metrics..."
+    log:
+        STUDY_DIR / "logs/NGS_make_rarefied_version.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime feature-table rarefy \
             --i-table {input.table} \
             --p-sampling-depth {params.depth} \
@@ -304,8 +334,11 @@ rule NGS_export_table_to_biom:
         mem_mb = 2000
     message:
         "[QIIME] Exporting NGS feature table to BIOM format..."
+    log:
+        STUDY_DIR / "logs/NGS_export_table_to_biom.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.table_qza} \
             --output-path exported_table_temp
@@ -324,8 +357,11 @@ rule NGS_export_rep_seqs_to_fna:
         mem_mb = 2000
     message:
         "[QIIME] Exporting NGS representative sequences to FASTA..."
+    log:
+        STUDY_DIR / "logs/NGS_export_rep_seqs_to_fna.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.rep_seqs_qza} \
             --output-path exported_seqs_temp

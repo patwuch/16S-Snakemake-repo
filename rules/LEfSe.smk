@@ -19,6 +19,8 @@ rule lefse_Huttenhower_run:
         LEFSE_R_CONTAINER
     resources:
         mem_mb = 6000
+    log:
+        STUDY_DIR / "logs/lefse_Huttenhower_run/{db}_{group_col}.log"
     script:
         f"{SCRIPTS_DIR}/run_lefse_Huttenhower.py"
 
@@ -38,5 +40,7 @@ rule lefse_Huttenhower_plot:
         EFFECTSIZE_CLADOGRAM_CONTAINER
     resources:
         mem_mb = 6000
+    log:
+        STUDY_DIR / "logs/lefse_Huttenhower_plot/{db}_{group_col}.log"
     script:
         f"{SCRIPTS_DIR}/plot_effectsize_cladogram.py"

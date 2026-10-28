@@ -4,6 +4,8 @@
 executor: slurm
 jobs: 20
 software-deployment-method: apptainer
+# Copy a failed job's own log into the main .snakemake/log/*.log.
+show-failed-logs: true
 
 # Fallback for the ~50 rules with no explicit resources: block (implicit
 # default is 1 thread). Rules that declare their own mem_mb/threads

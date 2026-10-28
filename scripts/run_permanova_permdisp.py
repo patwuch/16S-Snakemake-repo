@@ -153,6 +153,13 @@ def bh_adjust(p_values):
 # fresh interpreter instead, so they never inherit that thread/lock state.
 # ------------------------------
 if __name__ == "__main__":
+    # Send stdout/stderr to the Snakemake log. Inside __main__ so spawned
+    # workers, which re-import this module, don't truncate it again.
+    import os
+    _log = os.open(snakemake.log[0], os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    os.dup2(_log, 1)
+    os.dup2(_log, 2)
+
     # Inputs (from Snakemake or CLI)
     distance_qzas = snakemake.input.dist
     metadata_fp = snakemake.input.meta

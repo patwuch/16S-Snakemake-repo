@@ -1,3 +1,10 @@
+if (exists("snakemake")) {
+  # Send output and messages (incl. errors) to the Snakemake log.
+  log_con <- file(snakemake@log[[1]], open = "wt")
+  sink(log_con)
+  sink(log_con, type = "message")
+}
+
 library(tidyverse)
 
 # ===========================================================================

@@ -16,8 +16,11 @@ if region == "region_V3V4":
             mem_mb = 20000
         message:
             "[GG2] Classifying 16S region V3V4 sequences using Greengenes2 Naive Bayes Classifier..."
+        log:
+            STUDY_DIR / "logs/GG2_V3V4_taxonomy.log"
         shell:
             """
+            exec > {log} 2>&1
             qiime feature-classifier classify-sklearn \
                 --i-classifier {input.greengenes_nb_classifier} \
                 --i-reads {input.rep_seqs} \
@@ -44,8 +47,11 @@ elif region == "full_length":
             mem_mb = 20000
         message:
             "[GG2] Classifying 16S Full-length sequences using Greengenes2 Naive Bayes Classifier..."
+        log:
+            STUDY_DIR / "logs/GG2_Full_taxonomy.log"
         shell:
             """
+            exec > {log} 2>&1
             qiime feature-classifier classify-sklearn \
                 --i-classifier {input.greengenes_nb_classifier} \
                 --i-reads {input.rep_seqs} \
@@ -74,8 +80,11 @@ rule GG2_phylogeny:
         mem_mb = 16000
     message:
         "[GG2] Building phylogenetic tree for 16S (V3V4/Full-length) sequences using default Greengenes2 SEPP method..."
+    log:
+        STUDY_DIR / "logs/GG2_phylogeny.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime greengenes2 non-v4-16s \
             --i-table {input.table} \
             --i-sequences {input.rep_seqs} \
@@ -99,8 +108,11 @@ rule GG2_generate_taxa_barplot_qiime:
         mem_mb = 4000
     message:
         "[GG2] Generating Greengenes2 QIIME taxa barplot visualization..."
+    log:
+        STUDY_DIR / "logs/GG2_generate_taxa_barplot_qiime.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime taxa barplot \
             --i-table {input.table} \
             --i-taxonomy {input.taxonomy} \
@@ -121,8 +133,11 @@ rule GG2_export_taxonomy_as_tsv:
         mem_mb = 2000
     message:
         "[GG2] Exporting Greengenes2 taxonomy as TSV..."
+    log:
+        STUDY_DIR / "logs/GG2_export_taxonomy_as_tsv.log"
     shell:
         """
+        exec > {log} 2>&1
         qiime tools export \
             --input-path {input.taxonomy_qza} \
             --output-path {TABLES_DIR}/exported-taxonomy-temp-gg2
