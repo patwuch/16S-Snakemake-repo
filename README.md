@@ -30,7 +30,7 @@ See [`quickstart.md`](quickstart.md) for metadata.tsv column-naming rules and ge
 
 * LEfSe (the original Huttenhower implementation — see [`pipeline_overview.md`](pipeline_overview.md) Stage 5)
 
-ANCOM-BC2 is not part of the standard pipeline: its value lies in modelling a study's design, so it runs in per-study scripts under `main/<study>/additional_comparison_scripts/`.
+Some projects also use other differential abundance methods, like MaAsLin3, ALDEx3 and ANCOM-BC2. Those aren't part of the standard run; you'll find what each one does in that project's own folder.
 
 ## Naming Convention Guide
 
@@ -56,7 +56,9 @@ scripts/run_snakemake.sh --sdm apptainer --configfile config/<your_config>.yaml 
 
 Override the memory ceiling with `SNAKEMAKE_MEM_MAX` (cgroup cap, default `26G`) and `SNAKEMAKE_MEM_BUDGET` (the `mem_mb` resource budget passed to Snakemake, default `24000`).
 
-**Building/rebuilding containers**: each `containers/<name>.sif` is built from the matching `containers/<name>.def`, which in turn installs the matching `envs/<name>.yaml` conda spec. `envs/*.yaml` stays the source of truth for package lists — edit those, not a built `.sif` directly. Run `containers/build.sh` to build any `.def` missing a `.sif`, or `containers/build.sh --force <name>` to rebuild one after editing its `envs/*.yaml`. Snakemake does not rebuild containers on its own, and builds must run one at a time (`build.sh` already does this) — concurrent `apptainer build --fakeroot` runs corrupt each other via fakeroot namespace contention.
+Before starting, the wrapper runs `scripts/check_containers.sh`, which refuses to run if any `.sif` the workflow uses no longer matches its `.def` or `envs/*.yaml`. It doesn't rebuild anything; rebuild with `containers/build.sh --force <name>`, or set `SKIP_CONTAINER_CHECK=1` to run anyway.
+
+**Building/rebuilding containers**: each `containers/<name>.sif` is built from the matching `containers/<name>.def`, which in turn installs the matching `envs/<name>.yaml` conda spec. So in plain English: `envs/*.yaml` stays the source of truth for package lists, want to change something? Edit those, not a built `.sif` directly. Just run `containers/build.sh` to build any `.def` missing a `.sif`, or `containers/build.sh --force <name>` to rebuild one after editing its `envs/*.yaml`. Since we don't use conda anymore, snakemake does not rebuild containers on its own, and builds must run one at a time (`build.sh` already does this) — concurrent `apptainer build --fakeroot` runs corrupt each other via fakeroot namespace contention.
 
 **Filesystem access inside containers**: Snakemake invokes Apptainer without `--contain`/`--containall`, so containers share the host filesystem by default — `main/` and `reference/` are already visible inside every container with no `--bind` configuration needed. Do not add `--contain`/`--containall` via `--apptainer-args` unless you also add explicit `--bind` flags for `main/` and `reference/`, or those paths will silently disappear inside the container.
 
