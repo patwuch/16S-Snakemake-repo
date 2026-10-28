@@ -24,6 +24,20 @@ rule lefse_Huttenhower_run:
     script:
         f"{SCRIPTS_DIR}/run_lefse_Huttenhower.py"
 
+rule lefse_Huttenhower_table:
+    input:
+        res = TMP_DIR / "{db}/lefse_Huttenhower_results_by_{group_col}.txt"
+    output:
+        table = TABLES_DIR / "{db}_lefse_Huttenhower_markers_by_{group_col}.tsv"
+    params:
+        group_order = lambda wc: list(GROUP_COLORS[wc.group_col])
+    container:
+        LEFSE_R_CONTAINER
+    log:
+        STUDY_DIR / "logs/lefse_Huttenhower_table/{db}_{group_col}.log"
+    script:
+        f"{SCRIPTS_DIR}/lefse_marker_table.py"
+
 rule lefse_Huttenhower_plot:
     input:
         res = TMP_DIR / "{db}/lefse_Huttenhower_results_by_{group_col}.txt"

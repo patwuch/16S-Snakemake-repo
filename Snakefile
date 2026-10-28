@@ -484,6 +484,7 @@ alpha_sentinels = expand(
 # Build list of differential abundance outputs
 # ------------------------------
 differential_abundance_outputs = []
+lefse_table_outputs = []
 for db in reference_db:
     for method in DA_METHODS:
         
@@ -501,6 +502,10 @@ for db in reference_db:
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_LDA_by_{group}.svg"),
                         str(DIFFERENTIAL_ABUNDANCE_DIR / f"{db}/lefse_Huttenhower_Cladogram_by_{group}.svg"),
                     ])
+                    # Kept out of differential_abundance_outputs, which also feeds the
+                    # visualisations PDF.
+                    lefse_table_outputs.append(
+                        str(TABLES_DIR / f"{db}_lefse_Huttenhower_markers_by_{group}.tsv"))
 
 
 differential_abundance_png_outputs = []
@@ -646,6 +651,7 @@ print("beta_metric_outputs:", beta_metric_outputs)
 print("permanova_outputs:", permanova_outputs)
 print("picrust2_outputs:", picrust2_outputs)
 print("differential_abundance_outputs:", differential_abundance_outputs)
+print("lefse_table_outputs:", lefse_table_outputs)
 print("alpha_phylogenetic_outputs:", alpha_phylogenetic_outputs)
 print("beta_distance_phylogenetic_outputs:", beta_distance_phylogenetic_outputs)
 print("pcoa_phylogenetic_outputs:", pcoa_phylogenetic_outputs)
@@ -676,6 +682,7 @@ rule all:
         *picrust2_outputs,
         *differential_abundance_outputs,
         *differential_abundance_png_outputs,
+        *lefse_table_outputs,
         visualisations_pdf_output,
 
 
@@ -702,6 +709,7 @@ rule pipeline_complete:
         *picrust2_outputs,
         *differential_abundance_outputs,
         *differential_abundance_png_outputs,
+        *lefse_table_outputs,
         visualisations_pdf_output,
     output:
         sentinel = str(STUDY_DIR / ".pipeline_complete")
